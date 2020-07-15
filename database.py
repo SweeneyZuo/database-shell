@@ -219,9 +219,9 @@ def ExecNonQuery(sql):
         if sql.lower().startswith('desc'):
             if tab_name and tab_name.startswith('tbl_process_action_record'):
                 tab_name = 'tbl_process_action_record_0'
-            if config['server_type'] == 'sqlserver':
+            if config['servertype'] == 'sqlserver':
                 sql = 'sp_columns ' + tab_name
-            elif config['server_type'] == 'mysql':
+            elif config['servertype'] == 'mysql':
                 sql = 'desc ' + tab_name
 
         cur = conn.cursor()
@@ -267,12 +267,12 @@ def format_print_iterable(iterable, head_length,
                           digit_align_type=Align.ALIGN_RIGHT,
                           other_align_type=Align.ALIGN_CENTER,
                           color=Color.NO_COLOR):
-    end_str = ',' if format == 'csv' else '|'
+    end_str = ',' if format == 'csv' else ' | '
     for index, e in enumerate(iterable):
-        e = str(e)
+        e_str = str(e)
         space_num = 0
         if format == 'table':
-            space_num = abs(chinese_length_str(e) - head_length[index])
+            space_num = abs(chinese_length_str(e_str) - head_length[index])
         if index == 0:
             if format == 'csv':
                 print("\ufeff", end='')
@@ -280,11 +280,11 @@ def format_print_iterable(iterable, head_length,
                 print('| ', end='')
         if format == 'csv' and index == len(iterable) - 1:
             end_str = ''
-        if e.isdigit():
+        if isinstance(e, int) or isinstance(e, float):
             # 数字采用右对齐
-            print_by_align(e, space_num, align_type=digit_align_type, color=color, end_str=end_str)
+            print_by_align(e_str, space_num, align_type=digit_align_type, color=color, end_str=end_str)
         else:
-            print_by_align(e, space_num, align_type=other_align_type, color=color, end_str=end_str)
+            print_by_align(e_str, space_num, align_type=other_align_type, color=color, end_str=end_str)
         if index == len(iterable) - 1:
             # 行尾
             print()
@@ -355,7 +355,7 @@ def get_table_head_from_description(description):
     res = []
     for desc in description:
         res.append(desc[0])
-    return res
+        return res
 
 
 def fold_res(res):
@@ -389,6 +389,17 @@ def select_columns(res, columns):
     for line in res:
         res_new.append([line[i] for i in columns])
     return res_new
+
+
+def run_no_sql(no_sql, fold=True, columns=None):
+    no_sql = no_sql.strip()
+    rows, description, res = ExecNonQuery(sql=no_sql)
+    res = list(res) if res else res
+    res = fold_res(res) if fold else res
+    if description and res and len(description) > 0:
+        print_result_set(get_table_head_from_description(description), res, columns)
+    if rows and format == 'table':
+        print(INFO_COLOR.wrap('Effect rows:{}'.format(rows)))
 
 
 def deal_csv(res):
@@ -436,17 +447,6 @@ def print_result_set(fields, res, columns):
     if format == 'table':
         print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
         print(INFO_COLOR.wrap('Total Records: {}'.format(len(res))))
-
-
-def run_no_sql(no_sql, fold=True, columns=None):
-    no_sql = no_sql.strip()
-    rows, description, res = ExecNonQuery(sql=no_sql)
-    res = list(res) if res else res
-    res = fold_res(res) if fold else res
-    if description and res and len(description) > 0:
-        print_result_set(get_table_head_from_description(description), res, columns)
-    if rows and format == 'table':
-        print(INFO_COLOR.wrap('Effect rows:{}'.format(rows)))
 
 
 def print_info():
@@ -642,9 +642,9 @@ def load(path):
 
 def show_conf():
     for env in dbconf.keys():
-        print(Color.RED.wrap(env))
+        print(TABLE_HEAD_COLOR.wrap(env))
         for conf in dbconf[env].keys():
-            print(INFO_COLOR.wrap('{}:{}'.format(conf, dbconf[env][conf])))
+            print(DATA_COLOR.wrap('{}:{}'.format(conf, dbconf[env][conf])))
 
 
 if __name__ == '__main__':
@@ -673,5 +673,5 @@ if __name__ == '__main__':
     elif opt == 'load':
         load(option_val)
     else:
-        print(Color.ERROR_COLOR.wrap("Invalid operation!!!"))
+        print(ERROR_COLOR.wrap("Invalid operation!!!"))
     end()
