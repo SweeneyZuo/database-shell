@@ -185,9 +185,8 @@ def tbl_process_action_record():
         yield 'tbl_process_action_record_{}'.format(i)
 
 
-def ExecQuery(sql):
+def ExecQuery(sql, conn):
     tab_name = get_tab_name_from_sql(sql)
-    conn, config = get_connection_v2()
     res_list = []
     description = None
     try:
@@ -204,14 +203,11 @@ def ExecQuery(sql):
     except Exception as e:
         write_history('sql', sql, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
-    finally:
-        conn.close()
     return description, res_list
 
 
-def ExecNonQuery(sql):
+def ExecNonQuery(sql, conn):
     sql = sql.strip()
-    conn, config = get_connection_v2()
     rows, description, res = None, None, []
     try:
         cur = conn.cursor()
@@ -227,8 +223,6 @@ def ExecNonQuery(sql):
     except Exception as e:
         write_history('sql', sql, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
-    finally:
-        conn.close()
     return rows, description, res
 
 
@@ -306,23 +300,25 @@ def get_fields_length(iterable, func):
 
 
 def show_sys_tables():
-    conf = get_database_info_v2()
+    conn, conf = get_connection_v2()
     servertype = conf['servertype']
     if servertype == 'mysql':
         sql = 'SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA=\'{}\''.format(conf['database'])
     else:
         sql = 'SELECT name FROM sys.tables'
-    run_sql(sql, False, [0])
+    run_sql(sql, conn, False, [0])
+    conn.close()
 
 
 def desc_table(tab_name, fold, columns):
-    conf = get_database_info_v2()
+    conn, conf = get_connection_v2()
     if tab_name and tab_name.startswith('tbl_process_action_record'):
         tab_name = 'tbl_process_action_record_0'
     sql = 'desc {}'.format(tab_name)
     if conf['servertype'] == 'sqlserver':
         sql = 'sp_columns {}'.format(tab_name)
-    run_no_sql(sql, fold, columns)
+    run_no_sql(sql, conn, fold, columns)
+    conn.close()
 
 
 def get_fields_from_sql(sql: str):
@@ -362,29 +358,32 @@ def fold_res(res):
     return res
 
 
-def run_sql(sql: str, fold=True, columns=None):
+def run_sql(sql: str, conn, fold=True, columns=None):
     sql = sql.strip()
     if sql.lower().startswith('select'):
-        description, res = ExecQuery(sql)
+        description, res = ExecQuery(sql, conn)
         if not res:
             return
         res = fold_res(list(res)) if fold else list(res)
         fields = get_table_head_from_description(description)
         print_result_set(fields, res, columns)
     else:
-        run_no_sql(sql, fold, columns)
+        run_no_sql(sql, conn, fold, columns)
+
+
+def run_one_sql(sql: str, fold=True, columns=None):
+    conn, conf = get_connection_v2()
+    run_sql(sql, conn, fold, columns)
+    conn.close()
 
 
 def select_columns(res, columns):
-    res_new = []
-    for line in res:
-        res_new.append([line[i] for i in columns])
-    return res_new
+    return [[line[i] for i in columns] for line in res]
 
 
-def run_no_sql(no_sql, fold=True, columns=None):
+def run_no_sql(no_sql, conn, fold=True, columns=None):
     no_sql = no_sql.strip()
-    rows, description, res = ExecNonQuery(sql=no_sql)
+    rows, description, res = ExecNonQuery(no_sql, conn)
     res = list(res) if res else res
     res = fold_res(res) if fold else res
     if description and res and len(description) > 0:
@@ -403,16 +402,12 @@ def deal_csv(res):
         else:
             return cell_data
 
-    new_res = []
-    for row in res:
-        new_row = []
-        new_res.append(new_row)
-        for cell_data in row:
-            new_row.append(to_csv_cell(cell_data))
+    new_res = [[to_csv_cell(cell_data) for cell_data in row] for row in res]
     return new_res
 
 
 def print_result_set(fields, res, columns):
+    # 表头加上index
     fields = ['{}({})'.format(str(i), str(index)) for index, i in
               enumerate(fields)] if not columns and format == 'table' else fields
     res.insert(0, list(fields))
@@ -590,12 +585,13 @@ def end():
 
 
 def shell():
+    conn, conf = get_connection_v2()
     val = input('db>')
     while val != 'quit':
         if not (val == '' or val.strip() == ''):
-            run_sql(val)
-        print(val)
+            run_sql(val, conn)
         val = input('db>')
+    conn.close()
     sys.exit(0)
 
 
@@ -648,7 +644,7 @@ if __name__ == '__main__':
     elif opt == 'desc':
         desc_table(option_val, fold, colums)
     elif opt == 'sql':
-        run_sql(option_val, fold, colums)
+        run_one_sql(option_val, fold, colums)
     elif opt == 'set':
         set_info(option_val)
     elif opt == 'lock':
