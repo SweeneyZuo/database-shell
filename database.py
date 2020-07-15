@@ -1,13 +1,15 @@
 import hashlib
 import json
 import os
+import pymysql
 import re
 import sys
 from datetime import datetime
 from enum import Enum
 
 import pymssql
-import pymysql
+
+from databaseconf import data_base_dict as dbconf
 
 
 class DatabaseType(Enum):
@@ -23,6 +25,7 @@ class EnvType(Enum):
 
 ENV_TYPE = EnvType.DEV
 SERVER_TYPE = DatabaseType.SQLSERVER
+CONF_KEY = 'main_sqlserver'
 DATABASE = 'PersonalizedEngagement'
 
 
@@ -64,31 +67,8 @@ INFO_COLOR = Color.GREEN
 ERROR_COLOR = Color.RED
 WARN_COLOR = Color.KHAKI
 # DATABASE = 'fe_plat'
-QA_SQLSERVER_HOST = '10.88.130.50'
-QA_SQLSERVER_USER = 'meritcoacc'
-QA_SQLSERVER_PWD = 'M@ritc0'
 
-QA_MYSQL_HOST = '10.88.130.171'
-QA_MYSQL_USER = 'pe'
-QA_MYSQL_PWD = 'Meritco@123'
-
-PROD_SQLSERVER_HOST = '10.88.7.183'
-PROD_SQLSERVER_USER = 'svcperseng'
-PROD_SQLSERVER_PWD = 'S7cp@r1mg'
-
-PROD_MYSQL_HOST = '10.88.7.157'
-PROD_MYSQL_USER = 'pe'
-PROD_MYSQL_PWD = 'Meritco@123'
-
-DEV_SQLSERVER_HOST = '192.168.0.67'
-DEV_SQLSERVER_USER = 'fe'
-DEV_SQLSERVER_PWD = 'fe'
-
-DEV_MYSQL_HOST = '192.168.0.67'
-DEV_MYSQL_USER = 'fe'
-DEV_MYSQL_PWD = 'fe'
-
-config = {'env', 'servertype', 'database'}
+config = {'env', 'conf'}
 
 tab_set = {
     "tbl_wechat_qrcode", "tbl_data_group", "tbl_conf_lbs_sams", "tbl_tenant", "tbl_conf_cate_sams",
@@ -114,61 +94,18 @@ sms_tab_set = {
 }
 
 
-def get_database_info(tab_name=None):
-    global ENV_TYPE, SERVER_TYPE
-    host = ''
-    env = ENV_TYPE
-    server_type = SERVER_TYPE
-    user = ''
-    pwd = ''
-    db = DATABASE
-    if tab_name and tab_name in sms_tab_set:
-        if env is EnvType.QA:
-            host, user, pwd, db = (
-                QA_MYSQL_HOST, QA_MYSQL_USER, QA_MYSQL_PWD, 'SMSChannel') if server_type is DatabaseType.MYSQL else (
-                QA_SQLSERVER_HOST, QA_SQLSERVER_USER, QA_SQLSERVER_PWD, 'SMSChannel')
-        elif env is EnvType.PROD:
-            host, user, pwd, db = (
-                PROD_MYSQL_HOST, PROD_MYSQL_USER, PROD_MYSQL_PWD,
-                'SMSChannel') if server_type is DatabaseType.MYSQL else (
-                '10.88.7.183', 'svcsmschan', '5^c$nsc7@n', 'SMSChannel')
-        elif env is EnvType.DEV:
-            host, user, pwd, db = (
-                '192.168.0.162', 'pe', 'Meritco@123', 'SMSChannel') if server_type is DatabaseType.MYSQL else (
-                '192.168.0.67', 'fe', 'fe', 'SMSChannel')
-    elif tab_name and tab_name.startswith('tbl_process_action_record'):
-        if env is EnvType.QA:
-            host, user, pwd, db, server_type = '10.88.130.171', 'pe', 'Meritco@123', 'wx', DatabaseType.MYSQL
-        elif env is EnvType.PROD:
-            host, user, pwd, db, server_type = '10.88.7.139', 'pe', 'Meritco@123', 'wx', DatabaseType.MYSQL
-        elif env is EnvType.DEV:
-            host, user, pwd, db, server_type = '192.168.0.61', 'root', 'root', 'test', DatabaseType.MYSQL
-    else:
-        if env is EnvType.QA and SERVER_TYPE is DatabaseType.SQLSERVER:
-            host, user, pwd = QA_SQLSERVER_HOST, QA_SQLSERVER_USER, QA_SQLSERVER_PWD
-        elif env is EnvType.QA and SERVER_TYPE is DatabaseType.MYSQL:
-            host, user, pwd = QA_MYSQL_HOST, QA_MYSQL_USER, QA_MYSQL_PWD
-        elif env is EnvType.DEV and SERVER_TYPE is DatabaseType.SQLSERVER:
-            host, user, pwd = DEV_SQLSERVER_HOST, DEV_SQLSERVER_USER, DEV_SQLSERVER_PWD
-        elif env is EnvType.DEV and SERVER_TYPE is DatabaseType.MYSQL:
-            host, user, pwd = '192.168.0.162', 'pe', 'Meritco@123'
-        elif env is EnvType.PROD and SERVER_TYPE is DatabaseType.SQLSERVER:
-            host, user, pwd = PROD_SQLSERVER_HOST, PROD_SQLSERVER_USER, PROD_SQLSERVER_PWD
-        elif env is EnvType.PROD and SERVER_TYPE is DatabaseType.MYSQL:
-            host, user, pwd = PROD_MYSQL_HOST, PROD_MYSQL_USER, PROD_MYSQL_PWD
-        elif env is EnvType.PROD and SERVER_TYPE is DatabaseType.SQLSERVER and DATABASE == 'SMSChannel':
-            host, user, pwd = '10.88.7.183', 'svcsmschan', '5^c$nsc7@n'
-    return env, server_type, host, user, pwd, db
+def get_database_info_v2():
+    return dbconf[ENV_TYPE.value][CONF_KEY]
 
 
-def show_database_info(env, server_type, host, user, password, database):
+def show_database_info(**kwargs):
     print(INFO_COLOR.wrap(
-        '[DATABASE INFO]: env={}, serverType={}, host={}, user={}, password={}, database={}, lockStat={}.'.format(
-            env.value,
-            server_type.value,
-            host, user,
-            password,
-            database,
+        '[DATABASE INFO]: env={}, serverType={}, host={}, port={}, user={}, password={}, database={}, lockStat={}.'.format(
+            ENV_TYPE.value,
+            kwargs['servertype'],
+            kwargs['host'], kwargs['port'], kwargs['user'],
+            kwargs['password'],
+            kwargs['database'],
             is_locked())))
 
 
@@ -207,14 +144,21 @@ def show_history():
         print(ERROR_COLOR.wrap(e))
 
 
-def get_connection(tab_name):
-    env_type, server_type, host, user, password, database = get_database_info(tab_name)
-    show_database_info(env_type, server_type, host, user, password, database)
-    if server_type is DatabaseType.MYSQL:
-        conn = pymysql.connect(host=host, user=user, password=password, database=database, charset="UTF8")
+def get_connection_v2():
+    config = get_database_info_v2()
+    if format == 'table':
+        show_database_info(**config)
+    server_type = config['servertype']
+    if server_type == 'mysql':
+        return pymysql.connect(host=config['host'], user=config['user'], password=config['password'],
+                               database=config['database'], port=config['port'], charset=config.get('charset', 'UTF8'),
+                               autocommit=config.get('autocommit', False)), config
+    elif server_type == 'sqlserver':
+        return pymssql.connect(host=config['host'], user=config['user'], password=config['password'],
+                               database=config['database'], port=config['port'], charset=config.get('charset', 'UTF8'),
+                               autocommit=config.get('autocommit', False)), config
     else:
-        conn = pymssql.connect(host=host, user=user, password=password, database=database, charset="UTF8")
-    return conn, server_type
+        print(ERROR_COLOR.wrap("servertype error! servertype={}".format(server_type)))
 
 
 def get_tab_name_from_sql(sql: str):
@@ -244,7 +188,7 @@ def tbl_process_action_record():
 
 def ExecQuery(sql):
     tab_name = get_tab_name_from_sql(sql)
-    conn, server_type = get_connection(tab_name)
+    conn, config = get_connection_v2()
     res_list = []
     description = None
     try:
@@ -269,15 +213,15 @@ def ExecQuery(sql):
 def ExecNonQuery(sql):
     sql = sql.strip()
     tab_name = get_tab_name_from_sql(sql.lower())
-    conn, server_type = get_connection(tab_name)
+    conn, config = get_connection_v2()
     rows, description, res = None, None, []
     try:
         if sql.lower().startswith('desc'):
             if tab_name and tab_name.startswith('tbl_process_action_record'):
                 tab_name = 'tbl_process_action_record_0'
-            if server_type is DatabaseType.SQLSERVER:
+            if config['server_type'] == 'sqlserver':
                 sql = 'sp_columns ' + tab_name
-            elif server_type is DatabaseType.MYSQL:
+            elif config['server_type'] == 'mysql':
                 sql = 'desc ' + tab_name
 
         cur = conn.cursor()
@@ -323,16 +267,24 @@ def format_print_iterable(iterable, head_length,
                           digit_align_type=Align.ALIGN_RIGHT,
                           other_align_type=Align.ALIGN_CENTER,
                           color=Color.NO_COLOR):
+    end_str = ',' if format == 'csv' else '|'
     for index, e in enumerate(iterable):
         e = str(e)
-        space_num = abs(chinese_length_str(e) - head_length[index])
+        space_num = 0
+        if format == 'table':
+            space_num = abs(chinese_length_str(e) - head_length[index])
         if index == 0:
-            print('| ', end='')
+            if format == 'csv':
+                print("\ufeff", end='')
+            elif format == 'table':
+                print('| ', end='')
+        if format == 'csv' and index == len(iterable) - 1:
+            end_str = ''
         if e.isdigit():
             # 数字采用右对齐
-            print_by_align(e, space_num, align_type=digit_align_type, color=color)
+            print_by_align(e, space_num, align_type=digit_align_type, color=color, end_str=end_str)
         else:
-            print_by_align(e, space_num, align_type=other_align_type, color=color)
+            print_by_align(e, space_num, align_type=other_align_type, color=color, end_str=end_str)
         if index == len(iterable) - 1:
             # 行尾
             print()
@@ -368,7 +320,8 @@ def show_table():
 
 
 def show_sys_tables():
-    if SERVER_TYPE is DatabaseType.MYSQL:
+    servertype = get_database_info_v2()['servertype']
+    if servertype == 'mysql':
         sql = 'SELECT table_name FROM information_schema.tables where table_type=1'
     else:
         sql = 'SELECT name FROM sys.tables'
@@ -438,27 +391,51 @@ def select_columns(res, columns):
     return res_new
 
 
+def deal_csv(res):
+    def to_csv_cell(cell_data):
+        if cell_data is None:
+            return ''
+        elif isinstance(cell_data, str) and ('"' in cell_data or '\n' in cell_data or '\r' in cell_data):
+            cell_data = cell_data.replace('"', '""')
+            return '"{}"'.format(cell_data)
+        else:
+            return cell_data
+
+    new_res = []
+    for row in res:
+        new_row = []
+        new_res.append(new_row)
+        for cell_data in row:
+            new_row.append(to_csv_cell(cell_data))
+    return new_res
+
+
 def print_result_set(fields, res, columns):
-    fields = ['{}({})'.format(str(i), str(index)) for index, i in enumerate(fields)] if not columns else fields
+    fields = ['{}({})'.format(str(i), str(index)) for index, i in
+              enumerate(fields)] if not columns and format == 'table' else fields
     res.insert(0, list(fields))
     res = select_columns(res, columns) if columns else res
+    res = deal_csv(res) if format == 'csv' else res
     chinese_head_length = get_fields_length(res, chinese_length_str)
     max_row_length = sum(chinese_head_length)
     max = 1 + max_row_length + 3 * len(chinese_head_length)
     fields = res.pop(0)
     space_list_down = ['-' * i for i in chinese_head_length]
-    print(INFO_COLOR.wrap('Result Sets:'))
-    print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+    if format == 'table':
+        print(INFO_COLOR.wrap('Result Sets:'))
+        print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     for index, r in enumerate(res):
         if index == 0:
             format_print_iterable(fields, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
                                   color=TABLE_HEAD_COLOR)
-            format_print_iterable(space_list_down, chinese_head_length, color=Color.NO_COLOR)
+            if format == 'table':
+                format_print_iterable(space_list_down, chinese_head_length, color=Color.NO_COLOR)
         format_print_iterable(r, chinese_head_length, other_align_type=Align.ALIGN_LEFT, color=DATA_COLOR)
-        if max_row_length > SHOW_BOTTOM_THRESHOLD:
+        if format == 'table' and max_row_length > SHOW_BOTTOM_THRESHOLD:
             print('{}'.format('*' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
-    print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
-    print(INFO_COLOR.wrap('Total Records: {}'.format(len(res))))
+    if format == 'table':
+        print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+        print(INFO_COLOR.wrap('Total Records: {}'.format(len(res))))
 
 
 def run_no_sql(no_sql, fold=True, columns=None):
@@ -468,13 +445,13 @@ def run_no_sql(no_sql, fold=True, columns=None):
     res = fold_res(res) if fold else res
     if description and res and len(description) > 0:
         print_result_set(get_table_head_from_description(description), res, columns)
-    if rows:
+    if rows and format == 'table':
         print(INFO_COLOR.wrap('Effect rows:{}'.format(rows)))
 
 
 def print_info():
     try:
-        show_database_info(*get_database_info())
+        show_database_info(**get_database_info_v2())
         write_history('info', '', Stat.OK)
     except Exception as  e:
         write_history('info', '', Stat.ERROR)
@@ -492,14 +469,21 @@ def disable_color():
 
 def parse_info_obj(info_obj):
     if info_obj:
-        for conf_key in [conf_key for conf_key in info_obj if conf_key.lower() in config]:
-            global DATABASE, SERVER_TYPE, ENV_TYPE
-            if conf_key.lower() == 'database':
-                DATABASE = info_obj[conf_key]
-            elif conf_key.lower() == 'env':
+        conf_key_list = [conf_key for conf_key in info_obj.keys() if conf_key.lower() in config]
+        if len(conf_key_list) >= 2 and 'env' in conf_key_list:
+            conf_key_list.remove('env')
+            conf_key_list.insert(0, 'env')
+        for conf_key in conf_key_list:
+            global DATABASE, SERVER_TYPE, ENV_TYPE, CONF_KEY
+            # if conf_key.lower() == 'database':
+            #     DATABASE = info_obj[conf_key]
+            if conf_key.lower() == 'env':
                 ENV_TYPE = EnvType(info_obj[conf_key].lower())
-            elif conf_key.lower() == 'servertype':
-                SERVER_TYPE = DatabaseType(info_obj[conf_key].lower())
+            elif conf_key.lower() == 'conf':
+                if info_obj[conf_key].lower() in dbconf[ENV_TYPE.value].keys():
+                    CONF_KEY = info_obj[conf_key].lower()
+                else:
+                    print(ERROR_COLOR.wrap("no \"{}\" in env={}".format(info_obj[conf_key].lower(), ENV_TYPE.value)))
 
 
 def read_info():
@@ -514,8 +498,8 @@ def read_info():
 def write_info():
     config_dic = {}
     config_dic['env'] = ENV_TYPE.value
-    config_dic['serverType'] = SERVER_TYPE.value
-    config_dic['database'] = DATABASE
+    # config_dic['serverType'] = SERVER_TYPE.value
+    config_dic['conf'] = CONF_KEY
     file = os.path.join(get_proc_home(), '.db.info')
     with open(file, mode='w+', encoding='UTF8') as info_file:
         info_file.write(json.dumps(config_dic, indent=2))
@@ -586,6 +570,8 @@ def lock(key: str):
 
 def parse_args(args):
     option = args[1].strip().lower() if len(args) > 1 else ''
+    global format
+    format = 'table'
     colums, fold, show_sys = None, True, False
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
@@ -600,6 +586,11 @@ def parse_args(args):
                 colums = list(map(lambda x: int(x), p.split(',')))
             elif p == 'raw':
                 disable_color()
+            elif p == 'csv':
+                disable_color()
+                format = 'csv'
+                fold = False
+
     return option, colums, fold, show_sys, option_val
 
 
@@ -621,6 +612,41 @@ def shell():
     sys.exit(0)
 
 
+def load(path):
+    try:
+        if os.path.exists(path):
+            conn, config = get_connection_v2()
+            cur = conn.cursor()
+            with open(path, mode='r', encoding='UTF8') as sql_file:
+                for sql in sql_file.readlines():
+                    t_sql = sql.lower()
+                    if t_sql.startswith('insert') \
+                            or t_sql.startswith('update') \
+                            or t_sql.startswith('select') \
+                            or t_sql.startswith('alter') \
+                            or t_sql.startswith('set'):
+                        try:
+                            cur.execute(sql)
+                        except Exception as e:
+                            print(ERROR_COLOR.wrap(e))
+            conn.commit()
+            conn.close()
+            write_history('load', path, Stat.OK)
+        else:
+            print(ERROR_COLOR.wrap("path:{} not exist!".format(path)))
+            write_history('load', path, Stat.ERROR)
+    except Exception as e:
+        print(ERROR_COLOR.wrap("load {} fail! {}".format(path, e)))
+        write_history('load', path, Stat.ERROR)
+
+
+def show_conf():
+    for env in dbconf.keys():
+        print(Color.RED.wrap(env))
+        for conf in dbconf[env].keys():
+            print(INFO_COLOR.wrap('{}:{}'.format(conf, dbconf[env][conf])))
+
+
 if __name__ == '__main__':
     start()
     opt, colums, fold, show_sys, option_val = parse_args(sys.argv)
@@ -628,6 +654,8 @@ if __name__ == '__main__':
         print_info()
     elif opt == 'show':
         show_sys_tables() if show_sys else show_table()
+    elif opt == 'conf':
+        show_conf()
     elif opt == 'hist' or opt == 'history':
         show_history()
     elif opt == 'desc':
@@ -642,6 +670,8 @@ if __name__ == '__main__':
         unlock(option_val)
     elif opt == 'shell':
         shell()
+    elif opt == 'load':
+        load(option_val)
     else:
         print(Color.ERROR_COLOR.wrap("Invalid operation!!!"))
     end()
