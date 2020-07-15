@@ -36,6 +36,26 @@ class Align(Enum):
 
 
 class Color(Enum):
+    '''
+      格式：\033[显示方式;前景色;背景色m要打印的字符串\033[0m
+      前景色	背景色	颜色
+      30	40	黑色
+      31	41	红色
+      32	42	绿色
+      33	43	黃色
+      34	44	蓝色
+      35	45	紫红色
+      36	46	青蓝色
+      37	47	白色
+
+      显示方式	意义
+          0	终端默认设置
+          1	高亮显示
+          4	使用下划线
+          5	闪烁
+          7	反白显示
+          8	不可见
+      '''
     OFF_WHITE = "\033[29;1m{}\033[0m"
     WHITE = "\033[30;1m{}\033[0m"
     RED = "\033[31;1m{}\033[0m"
@@ -46,6 +66,8 @@ class Color(Enum):
     PURPLE = "\033[35;1m{}\033[0m"
     GREEN = "\033[36;1m{}\033[0m"
     GRAY = "\033[37;1m{}\033[0m"
+    # 黑白闪烁
+    BLACK_WHITE_TWINKLE = "\033[5;30;47m{}\033[0m"
     # 无颜色
     NO_COLOR = "{}"
 
@@ -66,32 +88,9 @@ TABLE_HEAD_COLOR = Color.RED
 INFO_COLOR = Color.GREEN
 ERROR_COLOR = Color.RED
 WARN_COLOR = Color.KHAKI
-# DATABASE = 'fe_plat'
+FOLD_COLOR = Color.BLACK_WHITE_TWINKLE
 
 config = {'env', 'conf'}
-
-tab_set = {
-    "tbl_wechat_qrcode", "tbl_data_group", "tbl_conf_lbs_sams", "tbl_tenant", "tbl_conf_cate_sams",
-    "tbl_user_to_tenant", "tbl_tencent_info", "tbl_wechat_account", "tbl_recommend_task",
-    "tbl_wechat_account_bind_hist", "tbl_etl_task_v2", "tbl_conf_category", "tbl_label_logic", "tbl_conf_department",
-    "tbl_wechat_temp_origin", "tbl_conf_fineline", "tbl_ref_wechat_temp_material", "tbl_miniprogram_card",
-    "tbl_ref_qrcode", "tbl_crowd_list", "tbl_wechat_temp_material", "tbl_label_activity", "tbl_campaign_batch",
-    "tbl_crowd_statistic_recent3m", "tbl_lookalike_model", "tbl_campaign_relevance", "tbl_timer_task",
-    "tbl_etl_refresh_task", "tbl_campaign_designer", "tbl_people_user", "tbl_sms_sign", "tbl_sms_material",
-    "tbl_conf_label_bi", "tbl_activity_info", "tbl_ref_sms_material", "tbl_activity_analysis", "tbl_activity_task",
-    "tbl_conf_brand", "tbl_conf_depart_cate_fineline", "tbl_campaign_activity", "tbl_conf_lbs", "tbl_crowd_basic",
-    "tbl_conf_label_status", "tbl_wechat_media", "tbl_crowd_statistic_month", "tbl_crowd_task", "tbl_etl_task",
-    "tbl_login_logging", "tbl_role2router", "tbl_operation_logging", "tbl_role2router_bak", "tbl_label_update_status",
-    "tbl_system_parameters", "tbl_coupon_analysis_info", "tbl_user", "tbl_user_group", "tbl_coupon_analysis_status",
-    "tbl_user_role", "tbl_user_to_group", "tbl_coupon_analysis_label_mapping", "tbl_user_to_router",
-    "tbl_analysis_info", "tbl_label_bi_info", "tbl_analysis_task", "tbl_label_bi_task", "tbl_conf_pay_type",
-    "tbl_evoucher_info", "tbl_wechat_policy", "tbl_popup_info", "tbl_wechat_info", "tbl_wechat_response_record",
-    "tbl_wechat_selfmenu", "tbl_conf_label", "tbl_wechat_autoreply", "tbl_process_action_record"
-}
-
-sms_tab_set = {
-    "tbl_sms_result_record", "tbl_sms_auth", "tbl_sms_black", "tbl_sms_send_task"
-}
 
 
 def get_database_info_v2():
@@ -212,18 +211,9 @@ def ExecQuery(sql):
 
 def ExecNonQuery(sql):
     sql = sql.strip()
-    tab_name = get_tab_name_from_sql(sql.lower())
     conn, config = get_connection_v2()
     rows, description, res = None, None, []
     try:
-        if sql.lower().startswith('desc'):
-            if tab_name and tab_name.startswith('tbl_process_action_record'):
-                tab_name = 'tbl_process_action_record_0'
-            if config['servertype'] == 'sqlserver':
-                sql = 'sp_columns ' + tab_name
-            elif config['servertype'] == 'mysql':
-                sql = 'desc ' + tab_name
-
         cur = conn.cursor()
         rows = cur.execute(sql)
         description = cur.description
@@ -267,6 +257,17 @@ def format_print_iterable(iterable, head_length,
                           digit_align_type=Align.ALIGN_RIGHT,
                           other_align_type=Align.ALIGN_CENTER,
                           color=Color.NO_COLOR):
+    def isdigit(e):
+        if isinstance(e, int) or isinstance(e, float):
+            return True
+        elif isinstance(e, str):
+            try:
+                float(e)
+                return True
+            except ValueError:
+                return False
+        return False
+
     end_str = ',' if format == 'csv' else ' | '
     for index, e in enumerate(iterable):
         e_str = str(e)
@@ -280,7 +281,7 @@ def format_print_iterable(iterable, head_length,
                 print('| ', end='')
         if format == 'csv' and index == len(iterable) - 1:
             end_str = ''
-        if isinstance(e, int) or isinstance(e, float):
+        if isdigit(e):
             # 数字采用右对齐
             print_by_align(e_str, space_num, align_type=digit_align_type, color=color, end_str=end_str)
         else:
@@ -304,32 +305,24 @@ def get_fields_length(iterable, func):
     return length_head
 
 
-def show_table():
-    try:
-        print('%13s' % '{}{}{}'.format('-' * 24, 'PersonalizedEngagement', '-' * 25))
-        for tab_name in tab_set:
-            print('%-70s' % tab_name, end='|\n')
-        print('%13s' % '{}{}{}'.format('-' * 30, 'SMSChannel', '-' * 31))
-        for tab_name in sms_tab_set:
-            print('%-70s' % tab_name, end='|\n')
-        print('-' * 71)
-        write_history('show', '', Stat.OK)
-    except Exception as e:
-        write_history('show', '', Stat.ERROR)
-        print(ERROR_COLOR.wrap(e))
-
-
 def show_sys_tables():
-    servertype = get_database_info_v2()['servertype']
+    conf = get_database_info_v2()
+    servertype = conf['servertype']
     if servertype == 'mysql':
-        sql = 'SELECT table_name FROM information_schema.tables where table_type=1'
+        sql = 'SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA=\'{}\''.format(conf['database'])
     else:
         sql = 'SELECT name FROM sys.tables'
     run_sql(sql, False, [0])
 
 
 def desc_table(tab_name, fold, columns):
-    run_no_sql('desc {}'.format(tab_name), fold, columns)
+    conf = get_database_info_v2()
+    if tab_name and tab_name.startswith('tbl_process_action_record'):
+        tab_name = 'tbl_process_action_record_0'
+    sql = 'desc {}'.format(tab_name)
+    if conf['servertype'] == 'sqlserver':
+        sql = 'sp_columns {}'.format(tab_name)
+    run_no_sql(sql, fold, columns)
 
 
 def get_fields_from_sql(sql: str):
@@ -352,10 +345,7 @@ def get_max_len(list):
 
 
 def get_table_head_from_description(description):
-    res = []
-    for desc in description:
-        res.append(desc[0])
-        return res
+    return [desc[0] for desc in description]
 
 
 def fold_res(res):
@@ -365,7 +355,8 @@ def fold_res(res):
             line_new = []
             for e in line:
                 str_e = str(e)
-                line_new.append(e) if len(str_e) < FOLD_LIMIT else (line_new.append(str_e[:FOLD_LIMIT - 3] + "..."))
+                line_new.append(e) if len(str_e) < FOLD_LIMIT else (
+                    line_new.append(str_e[:FOLD_LIMIT - 3] + FOLD_COLOR.wrap("...")))
             res_new.append(line_new)
         return res_new
     return res
@@ -406,7 +397,7 @@ def deal_csv(res):
     def to_csv_cell(cell_data):
         if cell_data is None:
             return ''
-        elif isinstance(cell_data, str) and ('"' in cell_data or '\n' in cell_data or '\r' in cell_data):
+        elif isinstance(cell_data, str) and (',' in cell_data or '\n' in cell_data or '\r' in cell_data):
             cell_data = cell_data.replace('"', '""')
             return '"{}"'.format(cell_data)
         else:
@@ -475,8 +466,6 @@ def parse_info_obj(info_obj):
             conf_key_list.insert(0, 'env')
         for conf_key in conf_key_list:
             global DATABASE, SERVER_TYPE, ENV_TYPE, CONF_KEY
-            # if conf_key.lower() == 'database':
-            #     DATABASE = info_obj[conf_key]
             if conf_key.lower() == 'env':
                 ENV_TYPE = EnvType(info_obj[conf_key].lower())
             elif conf_key.lower() == 'conf':
@@ -572,7 +561,7 @@ def parse_args(args):
     option = args[1].strip().lower() if len(args) > 1 else ''
     global format
     format = 'table'
-    colums, fold, show_sys = None, True, False
+    colums, fold = None, True
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
     if len(args) > parse_start_pos:
@@ -580,8 +569,6 @@ def parse_args(args):
             p: str = args[index].strip().lower()
             if p == 'false':
                 fold = False
-            elif p == 'all':
-                show_sys = True
             elif p.isdigit() or ',' in p:
                 colums = list(map(lambda x: int(x), p.split(',')))
             elif p == 'raw':
@@ -591,7 +578,7 @@ def parse_args(args):
                 format = 'csv'
                 fold = False
 
-    return option, colums, fold, show_sys, option_val
+    return option, colums, fold, option_val
 
 
 def start():
@@ -649,11 +636,11 @@ def show_conf():
 
 if __name__ == '__main__':
     start()
-    opt, colums, fold, show_sys, option_val = parse_args(sys.argv)
+    opt, colums, fold, option_val = parse_args(sys.argv)
     if opt == 'info' or opt == '':
         print_info()
     elif opt == 'show':
-        show_sys_tables() if show_sys else show_table()
+        show_sys_tables()
     elif opt == 'conf':
         show_conf()
     elif opt == 'hist' or opt == 'history':
