@@ -22,11 +22,9 @@ class EnvType(Enum):
     PROD = 'prod'
     QA = 'qa'
 
-
+DEFAULT_CONF = 'default'
 ENV_TYPE = EnvType.DEV
-SERVER_TYPE = DatabaseType.SQLSERVER
-CONF_KEY = 'main_sqlserver'
-DATABASE = 'PersonalizedEngagement'
+CONF_KEY = DEFAULT_CONF
 
 
 class Align(Enum):
@@ -94,17 +92,21 @@ config = {'env', 'conf'}
 
 
 def get_database_info_v2():
+    if CONF_KEY == DEFAULT_CONF:
+        return None
     return dbconf[ENV_TYPE.value][CONF_KEY]
 
 
 def show_database_info(**kwargs):
     print(INFO_COLOR.wrap(
-        '[DATABASE INFO]: env={}, serverType={}, host={}, port={}, user={}, password={}, database={}, lockStat={}.'.format(
-            ENV_TYPE.value,
-            kwargs['servertype'],
-            kwargs['host'], kwargs['port'], kwargs['user'],
-            kwargs['password'],
-            kwargs['database'],
+        '[DATABASE INFO]: env={}, conf={}, serverType={}, host={}, port={}, user={}, password={}, database={}, lockStat={}.'.format(
+            ENV_TYPE.value, CONF_KEY,
+            kwargs.get('servertype', ''),
+            kwargs.get('host', ''),
+            kwargs.get('port', ''),
+            kwargs.get('user', ''),
+            kwargs.get('password', ''),
+            kwargs.get('database', ''),
             is_locked())))
 
 
@@ -145,6 +147,8 @@ def show_history():
 
 def get_connection_v2():
     config = get_database_info_v2()
+    if config is None:
+        sys.exit(0)
     if format == 'table':
         show_database_info(**config)
     server_type = config['servertype']
@@ -437,7 +441,9 @@ def print_result_set(fields, res, columns):
 
 def print_info():
     try:
-        show_database_info(**get_database_info_v2())
+        config = get_database_info_v2()
+        config = {} if config is None else config
+        show_database_info(**config)
         write_history('info', '', Stat.OK)
     except Exception as  e:
         write_history('info', '', Stat.ERROR)
@@ -453,21 +459,32 @@ def disable_color():
     ERROR_COLOR = Color.NO_COLOR
 
 
-def parse_info_obj(info_obj):
+class Opt(Enum):
+    UPDATE = 'update'
+    WRITE = 'write'
+    READ = 'read'
+
+def parse_info_obj(info_obj, opt=Opt.READ):
     if info_obj:
+        global ENV_TYPE, CONF_KEY
         conf_key_list = [conf_key for conf_key in info_obj.keys() if conf_key.lower() in config]
         if len(conf_key_list) >= 2 and 'env' in conf_key_list:
             conf_key_list.remove('env')
             conf_key_list.insert(0, 'env')
         for conf_key in conf_key_list:
-            global DATABASE, SERVER_TYPE, ENV_TYPE, CONF_KEY
             if conf_key.lower() == 'env':
                 ENV_TYPE = EnvType(info_obj[conf_key].lower())
+                if opt is Opt.UPDATE:
+                    print(INFO_COLOR.wrap("set env={} ok.".format(ENV_TYPE.value)))
             elif conf_key.lower() == 'conf':
                 if info_obj[conf_key].lower() in dbconf[ENV_TYPE.value].keys():
                     CONF_KEY = info_obj[conf_key].lower()
-                else:
+                    if opt is Opt.UPDATE:
+                     print(INFO_COLOR.wrap("set conf={} ok.".format(CONF_KEY)))
+                elif opt is Opt.UPDATE:
                     print(ERROR_COLOR.wrap("no \"{}\" in env={}".format(info_obj[conf_key].lower(), ENV_TYPE.value)))
+        if CONF_KEY == DEFAULT_CONF and opt is not Opt.WRITE:
+            print(ERROR_COLOR.wrap("please set conf!"))
 
 
 def read_info():
@@ -476,13 +493,12 @@ def read_info():
     if os.path.exists(file):
         with open(file, mode='r', encoding='UTF8') as info_file:
             info_obj = json.loads(''.join(info_file.readlines()))
-            parse_info_obj(info_obj)
+            parse_info_obj(info_obj, Opt.READ)
 
 
 def write_info():
     config_dic = {}
     config_dic['env'] = ENV_TYPE.value
-    # config_dic['serverType'] = SERVER_TYPE.value
     config_dic['conf'] = CONF_KEY
     file = os.path.join(get_proc_home(), '.db.info')
     with open(file, mode='w+', encoding='UTF8') as info_file:
@@ -498,7 +514,7 @@ def set_info(kv):
             return
         kv_pair = kv.split('=')
         info_obj[kv_pair[0]] = kv_pair[1]
-        parse_info_obj(info_obj)
+        parse_info_obj(info_obj, Opt.UPDATE)
         write_history('set', kv, Stat.OK)
     except Exception as e:
         write_history('set', kv, Stat.ERROR)
