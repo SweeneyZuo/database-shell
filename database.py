@@ -624,10 +624,15 @@ def load(path):
 
 
 def show_conf():
+    print_content = []
+    head = ['env', 'conf', 'servertype', 'host', 'port', 'database', 'user', 'password', 'charset', 'autocommit']
     for env in dbconf.keys():
-        print(TABLE_HEAD_COLOR.wrap(env))
         for conf in dbconf[env].keys():
-            print(DATA_COLOR.wrap('{}:{}'.format(conf, dbconf[env][conf])))
+            new_row = [env]
+            new_row.append(conf)
+            new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
+            print_content.append(new_row)
+    print_result_set(head, print_content, list(range(len(head))))
 
 
 if __name__ == '__main__':
