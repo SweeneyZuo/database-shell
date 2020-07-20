@@ -4,6 +4,7 @@ import os
 import pymysql
 import re
 import sys
+import time
 from datetime import datetime
 from enum import Enum
 
@@ -21,6 +22,7 @@ class EnvType(Enum):
     DEV = 'dev'
     PROD = 'prod'
     QA = 'qa'
+
 
 DEFAULT_CONF = 'default'
 ENV_TYPE = EnvType.DEV
@@ -368,7 +370,6 @@ def run_sql(sql: str, conn, fold=True, columns=None):
         description, res = ExecQuery(sql, conn)
         if not res:
             return
-        res = fold_res(list(res)) if fold else list(res)
         fields = get_table_head_from_description(description)
         print_result_set(fields, res, columns)
     else:
@@ -389,7 +390,6 @@ def run_no_sql(no_sql, conn, fold=True, columns=None):
     no_sql = no_sql.strip()
     rows, description, res = ExecNonQuery(no_sql, conn)
     res = list(res) if res else res
-    res = fold_res(res) if fold else res
     if description and res and len(description) > 0:
         print_result_set(get_table_head_from_description(description), res, columns)
     if rows and format == 'table':
@@ -410,12 +410,40 @@ def deal_csv(res):
     return new_res
 
 
+def deal_human(rows):
+    def _human_time(time_stamp):
+        if time_stamp is None:
+            return None
+        if len(str(time_stamp)) not in (10, 13):
+            return time_stamp
+        if isinstance(time_stamp, str) and time_stamp.isdigit():
+            time_stamp = int(time_stamp)
+        if isinstance(time_stamp, int):
+            struct_time = time.localtime((time_stamp / 1000) if len(str(time_stamp)) == 13 else time_stamp)
+            return time.strftime("%Y-%m-%d %H:%M:%S", struct_time)
+        return time
+
+    human_time_cols = set([i for i in range(len(rows[0])) if 'time' in str(rows[0][i]).lower()])
+    new_rows = []
+    for row_index, row in enumerate(rows):
+        if row_index == 0:
+            new_rows.append(row)
+            continue
+        new_rows.append([])
+        for col_index, e in enumerate(row):
+            new_rows[row_index].append(_human_time(e) if col_index in human_time_cols else e)
+    return new_rows
+
+
 def print_result_set(fields, res, columns):
     # 表头加上index
     fields = ['{}({})'.format(str(i), str(index)) for index, i in
               enumerate(fields)] if not columns and format == 'table' else fields
+    res = list(res) if res else []
     res.insert(0, list(fields))
     res = select_columns(res, columns) if columns else res
+    res = deal_human(res) if human else res
+    res = fold_res(res) if fold else res
     res = deal_csv(res) if format == 'csv' else res
     chinese_head_length = get_fields_length(res, chinese_length_str)
     max_row_length = sum(chinese_head_length)
@@ -451,18 +479,20 @@ def print_info():
 
 
 def disable_color():
-    global DATA_COLOR, TABLE_HEAD_COLOR, INFO_COLOR, ERROR_COLOR, WARN_COLOR
+    global DATA_COLOR, TABLE_HEAD_COLOR, INFO_COLOR, ERROR_COLOR, WARN_COLOR, FOLD_COLOR
     DATA_COLOR = Color.NO_COLOR
     TABLE_HEAD_COLOR = Color.NO_COLOR
     INFO_COLOR = Color.NO_COLOR
     WARN_COLOR = Color.NO_COLOR
     ERROR_COLOR = Color.NO_COLOR
+    FOLD_COLOR = Color.NO_COLOR
 
 
 class Opt(Enum):
     UPDATE = 'update'
     WRITE = 'write'
     READ = 'read'
+
 
 def parse_info_obj(info_obj, opt=Opt.READ):
     if info_obj:
@@ -480,9 +510,9 @@ def parse_info_obj(info_obj, opt=Opt.READ):
                 if info_obj[conf_key].lower() in dbconf[ENV_TYPE.value].keys():
                     CONF_KEY = info_obj[conf_key].lower()
                     if opt is Opt.UPDATE:
-                     print(INFO_COLOR.wrap("set conf={} ok.".format(CONF_KEY)))
+                        print(INFO_COLOR.wrap("set conf={} ok.".format(CONF_KEY)))
                 elif opt is Opt.UPDATE:
-                    print(ERROR_COLOR.wrap("no \"{}\" in env={}".format(info_obj[conf_key].lower(), ENV_TYPE.value)))
+                    print(ERROR_COLOR.wrap("Not found \"{}\" conf in env={}".format(info_obj[conf_key].lower(), ENV_TYPE.value)))
         if CONF_KEY == DEFAULT_CONF and opt is not Opt.WRITE:
             print(ERROR_COLOR.wrap("please set conf!"))
 
@@ -570,8 +600,9 @@ def lock(key: str):
 
 def parse_args(args):
     option = args[1].strip().lower() if len(args) > 1 else ''
-    global format
+    global format, human
     format = 'table'
+    human = False
     colums, fold = None, True
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
@@ -588,6 +619,8 @@ def parse_args(args):
                 disable_color()
                 format = 'csv'
                 fold = False
+            elif p == 'human':
+                human = True
 
     return option, colums, fold, option_val
 
