@@ -519,7 +519,8 @@ def parse_info_obj(info_obj, opt=Opt.READ):
                     if opt is Opt.UPDATE:
                         print(INFO_COLOR.wrap("set conf={} ok.".format(CONF_KEY)))
                 elif opt is Opt.UPDATE:
-                    print(ERROR_COLOR.wrap("Not found \"{}\" conf in env={}".format(info_obj[conf_key].lower(), ENV_TYPE.value)))
+                    print(ERROR_COLOR.wrap(
+                        "Not found \"{}\" conf in env={}".format(info_obj[conf_key].lower(), ENV_TYPE.value)))
         if CONF_KEY == DEFAULT_CONF and opt is not Opt.WRITE:
             print(ERROR_COLOR.wrap("please set conf!"))
 
@@ -623,7 +624,8 @@ def parse_args(args):
             elif '-' in p:
                 t = p.split('-')
                 if t[0].isdigit() and t[1].isdigit():
-                    colums = [i for i in range(int(t[0]), int(t[1]) + 1)]
+                    colums = [i for i in range(int(t[0]), int(t[1]) + 1)] if int(t[0]) <= int(t[1]) \
+                        else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
             elif p == 'raw':
                 disable_color()
             elif p == 'csv':
@@ -644,6 +646,28 @@ def end():
     write_info()
 
 
+def print_usage():
+    print('''usage: db [options]
+             options:
+               help, display this help and exit.
+               info, show database info.
+               show, list all tables in the current database.
+               conf, list all database configurations.
+               hist, list today's command history.
+               desc, <table name> view the description information of the table.
+               load, <sql file> import sql file.
+               shell, start an interactive shell.
+               sql, <sql> [false] [raw] [human] [csv] [column index]
+                 false, disable fold.
+                 raw, disable all color.
+                 human, print timestamp in human readable, the premise is that the field contains "time".
+                 csv, print in csv format.
+                 column index, print specific columns, example: "0,1,2" or "0-2".
+               set, <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
+               lock, <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
+               unlock, <passwd> unlock database configuration.''')
+
+
 def shell():
     conn, conf = get_connection_v2()
     val = input('db>')
@@ -660,6 +684,7 @@ def load(path):
         if os.path.exists(path):
             conn, config = get_connection_v2()
             cur = conn.cursor()
+            success_num, fail_num = 0, 0
             with open(path, mode='r', encoding='UTF8') as sql_file:
                 for sql in sql_file.readlines():
                     t_sql = sql.lower()
@@ -670,11 +695,14 @@ def load(path):
                             or t_sql.startswith('set'):
                         try:
                             cur.execute(sql)
+                            success_num += 1
                         except Exception as e:
+                            fail_num += 1
                             print(ERROR_COLOR.wrap(e))
             conn.commit()
             conn.close()
             write_history('load', path, Stat.OK)
+            print(INFO_COLOR.wrap('load ok. {} successfully executed, {} failed.'.format(success_num, fail_num)))
         else:
             print(ERROR_COLOR.wrap("path:{} not exist!".format(path)))
             write_history('load', path, Stat.ERROR)
@@ -693,7 +721,8 @@ def show_conf():
             new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
     print_result_set(head, print_content, list(range(len(head))))
-    print(INFO_COLOR.wrap('If you need to add configuration , you need to append it in {} file.'.format(os.path.join(get_proc_home(), 'databaseconf.py'))))
+    print(INFO_COLOR.wrap('If you need to add configuration , you need to append it in {} file.'.format(
+        os.path.join(get_proc_home(), 'databaseconf.py'))))
 
 
 if __name__ == '__main__':
@@ -721,6 +750,9 @@ if __name__ == '__main__':
         shell()
     elif opt == 'load':
         load(option_val)
+    elif opt == 'help':
+        print_usage()
     else:
         print(ERROR_COLOR.wrap("Invalid operation!!!"))
+        print_usage()
     end()
