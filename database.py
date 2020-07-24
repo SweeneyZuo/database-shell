@@ -629,15 +629,7 @@ def lock(key: str):
         m.update(key.encode('UTF-8'))
         lock_file = os.path.join(get_proc_home(), '.db.lock.value')
         with open(lock_file, mode='w+') as f:
-            try:
-                # 保证lock_file的读写安全
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as bioe:
-                print(ERROR_COLOR.wrap("lock fail, please retry!"))
-                write_history('lock', '*' * 10, Stat.ERROR)
-                sys.exit(-1)
             f.write(m.hexdigest())
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         print(INFO_COLOR.wrap('db locked!'))
         write_history('lock', '*' * 10, Stat.OK)
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
