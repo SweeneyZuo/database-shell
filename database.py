@@ -648,24 +648,24 @@ def end():
 
 def print_usage():
     print('''usage: db [options]
-             options:
-               help, display this help and exit.
-               info, show database info.
-               show, list all tables in the current database.
-               conf, list all database configurations.
-               hist, list today's command history.
-               desc, <table name> view the description information of the table.
-               load, <sql file> import sql file.
-               shell, start an interactive shell.
-               sql, <sql> [false] [raw] [human] [csv] [column index]
-                 false, disable fold.
-                 raw, disable all color.
-                 human, print timestamp in human readable, the premise is that the field contains "time".
-                 csv, print in csv format.
-                 column index, print specific columns, example: "0,1,2" or "0-2".
-               set, <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
-               lock, <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
-               unlock, <passwd> unlock database configuration.''')
+      options:
+        help, display this help and exit.
+        info, show database info.
+        show, list all tables in the current database.
+        conf, list all database configurations.
+        hist, list today's command history.
+        desc, <table name> view the description information of the table.
+        load, <sql file> import sql file.
+        shell, start an interactive shell.
+        sql, <sql> [false] [raw] [human] [csv] [column index]
+          false, disable fold.
+          raw, disable all color.
+          human, print timestamp in human readable, the premise is that the field contains "time".
+          csv, print in csv format.
+          column index, print specific columns, example: "0,1,2" or "0-2".
+        set, <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
+        lock, <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
+        unlock, <passwd> unlock database configuration.''')
 
 
 def shell():
