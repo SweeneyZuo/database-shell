@@ -37,7 +37,7 @@ class Align(Enum):
 
 
 class Color(Enum):
-    '''
+    """
       格式：\033[显示方式;前景色;背景色m要打印的字符串\033[0m
       前景色	背景色	颜色
       30	40	黑色
@@ -56,7 +56,7 @@ class Color(Enum):
           5	闪烁
           7	反白显示
           8	不可见
-      '''
+      """
     OFF_WHITE = "\033[29;1m{}\033[0m"
     WHITE = "\033[30;1m{}\033[0m"
     RED = "\033[31;1m{}\033[0m"
@@ -127,8 +127,10 @@ def write_history(option: str, content: str, stat: Stat):
     time = datetime.now().strftime('%H:%M:%S')
     with open(file, mode='a+', encoding='UTF-8') as history_file:
         data = '{}|{}|{}|{}\n'.format(time, option, content, stat.value)
+        fcntl.flock(history_file.fileno(), fcntl.LOCK_EX)
         history_file.write(data)
         history_file.flush()
+        fcntl.flock(history_file.fileno(), fcntl.LOCK_UN)
 
 
 def read_history():
@@ -544,7 +546,9 @@ def write_info():
     config_dic['conf'] = CONF_KEY
     file = os.path.join(get_proc_home(), '.db.info')
     with open(file, mode='w+', encoding='UTF8') as info_file:
+        fcntl.flock(info_file.fileno(), fcntl.LOCK_EX)
         info_file.write(json.dumps(config_dic, indent=2))
+        fcntl.flock(info_file.fileno(), fcntl.LOCK_UN)
 
 
 def set_info(kv):
@@ -554,10 +558,17 @@ def set_info(kv):
             print(ERROR_COLOR.wrap('db is locked! can\'t set value.'))
             write_history('set', kv, Stat.ERROR)
             return
-        kv_pair = kv.split('=')
-        info_obj[kv_pair[0]] = kv_pair[1]
-        parse_info_obj(info_obj, Opt.UPDATE)
-        write_history('set', kv, Stat.OK)
+        with open(os.path.join(get_proc_home(), '.db.lock'), 'w') as lock:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as bioe:
+                print(ERROR_COLOR.wrap("set fail, please retry!"))
+                sys.exit(-1)
+            kv_pair = kv.split('=')
+            info_obj[kv_pair[0]] = kv_pair[1]
+            parse_info_obj(info_obj, Opt.UPDATE)
+            write_history('set', kv, Stat.OK)
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     except Exception as e:
         write_history('set', kv, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
