@@ -81,6 +81,7 @@ class Stat(Enum):
 
 
 FOLD_LIMIT = 50
+FOLD_REPLACE_STR = "..."
 ROW_MAX_WIDTH = 165
 SHOW_BOTTOM_THRESHOLD = 150
 DATA_COLOR = Color.NO_COLOR
@@ -232,11 +233,14 @@ def ExecNonQuery(sql, conn):
     return rows, description, res
 
 
-def chinese_length_str(str):
+def chinese_length_str(obj):
     l = 0
-    for char in str:
+    fold_color_str = FOLD_COLOR.wrap(FOLD_REPLACE_STR)
+    str_obj = 'NULL' if obj is None else str(obj)
+    color_len = len(FOLD_COLOR.wrap('')) if str_obj.endswith(fold_color_str) else 0
+    for char in str_obj:
         l = l + 2 if '\u4e00' <= char <= '\u9fff' else l + 1
-    return l
+    return l - color_len
 
 
 def print_by_align(data, space_num, align_type, color=Color.NO_COLOR, end_str=' | '):
@@ -250,13 +254,16 @@ def print_by_align(data, space_num, align_type, color=Color.NO_COLOR, end_str=' 
     elif align_type == Align.ALIGN_CENTER:
         half_space_num = int(space_num / 2)
         left_space_num = space_num - half_space_num
-        print('{}{}{}'.format(' ' * left_space_num, color.wrap(data), ' ' * half_space_num), end=end_str)
+        print('{}{}{}'.format(' ' * half_space_num, color.wrap(data), ' ' * left_space_num), end=end_str)
+    else:
+        print(ERROR_COLOR.wrap("no align type, align_type={}".format(align_type)))
+        sys.exit(-1)
 
 
-def format_print_iterable(iterable, head_length,
-                          digit_align_type=Align.ALIGN_RIGHT,
-                          other_align_type=Align.ALIGN_CENTER,
-                          color=Color.NO_COLOR):
+def print_row_format(row, head_length,
+                     digit_align_type=Align.ALIGN_RIGHT,
+                     other_align_type=Align.ALIGN_CENTER,
+                     color=Color.NO_COLOR):
     def isdigit(e):
         if isinstance(e, int) or isinstance(e, float):
             return True
@@ -269,8 +276,8 @@ def format_print_iterable(iterable, head_length,
         return False
 
     end_str = ',' if format == 'csv' else ' | '
-    for index, e in enumerate(iterable):
-        e_str = str(e)
+    for index, e in enumerate(row):
+        e_str = 'NULL' if e is None else str(e)
         space_num = 0
         if format == 'table':
             space_num = abs(chinese_length_str(e_str) - head_length[index])
@@ -279,29 +286,29 @@ def format_print_iterable(iterable, head_length,
                 print("\ufeff", end='')
             elif format == 'table':
                 print('| ', end='')
-        if format == 'csv' and index == len(iterable) - 1:
+        if format == 'csv' and index == len(row) - 1:
             end_str = ''
         if isdigit(e):
             # 数字采用右对齐
             print_by_align(e_str, space_num, align_type=digit_align_type, color=color, end_str=end_str)
         else:
             print_by_align(e_str, space_num, align_type=other_align_type, color=color, end_str=end_str)
-        if index == len(iterable) - 1:
+        if index == len(row) - 1:
             # 行尾
             print()
 
 
-def get_fields_length(iterable, func):
+def get_fields_length(rows, func):
     def length(iterable):
         l = 0
-        for line in iterable:
-            l = len(line) if l < len(line) else l
+        for row in iterable:
+            l = len(row) if l < len(row) else l
         return l
 
-    length_head = [0 for i in range(length(iterable))]
-    for line in iterable:
-        for index, e in enumerate(line):
-            length_head[index] = func(str(e)) if func(str(e)) > length_head[index] else length_head[index]
+    length_head = [0 for i in range(length(rows))]
+    for row in rows:
+        for index, e in enumerate(row):
+            length_head[index] = func(e) if func(e) > length_head[index] else length_head[index]
     return length_head
 
 
@@ -358,7 +365,7 @@ def fold_res(res):
             for e in line:
                 str_e = str(e)
                 line_new.append(e) if len(str_e) < FOLD_LIMIT else (
-                    line_new.append(str_e[:FOLD_LIMIT - 3] + FOLD_COLOR.wrap("...")))
+                    line_new.append(str_e[:FOLD_LIMIT - 3] + FOLD_COLOR.wrap(FOLD_REPLACE_STR)))
             res_new.append(line_new)
         return res_new
     return res
@@ -438,9 +445,9 @@ def deal_human(rows):
 def print_result_set(fields, res, columns):
     # 表头加上index
     fields = ['{}({})'.format(str(i), str(index)) for index, i in
-              enumerate(fields)] if not columns and format == 'table' else fields
+              enumerate(fields)] if not columns and format == 'table' else list(fields)
     res = list(res) if res else []
-    res.insert(0, list(fields))
+    res.insert(0, fields)
     res = select_columns(res, columns) if columns else res
     res = deal_human(res) if human else res
     res = fold_res(res) if fold else res
@@ -455,11 +462,11 @@ def print_result_set(fields, res, columns):
         print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     for index, r in enumerate(res):
         if index == 0:
-            format_print_iterable(fields, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
-                                  color=TABLE_HEAD_COLOR)
+            print_row_format(fields, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
+                             color=TABLE_HEAD_COLOR)
             if format == 'table':
-                format_print_iterable(space_list_down, chinese_head_length, color=Color.NO_COLOR)
-        format_print_iterable(r, chinese_head_length, other_align_type=Align.ALIGN_LEFT, color=DATA_COLOR)
+                print_row_format(space_list_down, chinese_head_length, color=Color.NO_COLOR)
+        print_row_format(r, chinese_head_length, other_align_type=Align.ALIGN_LEFT, color=DATA_COLOR)
         if format == 'table' and max_row_length > SHOW_BOTTOM_THRESHOLD:
             print('{}'.format('*' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     if format == 'table':
@@ -613,6 +620,10 @@ def parse_args(args):
                 fold = False
             elif p.isdigit() or ',' in p:
                 colums = list(map(lambda x: int(x), p.split(',')))
+            elif '-' in p:
+                t = p.split('-')
+                if t[0].isdigit() and t[1].isdigit():
+                    colums = [i for i in range(int(t[0]), int(t[1]) + 1)]
             elif p == 'raw':
                 disable_color()
             elif p == 'csv':
@@ -682,6 +693,7 @@ def show_conf():
             new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
     print_result_set(head, print_content, list(range(len(head))))
+    print(INFO_COLOR.wrap('If you need to add configuration , you need to append it in {} file.'.format(os.path.join(get_proc_home(), 'databaseconf.py'))))
 
 
 if __name__ == '__main__':
