@@ -1,3 +1,4 @@
+import fcntl
 import hashlib
 import json
 import os
@@ -115,6 +116,9 @@ def show_database_info(**kwargs):
 
 def get_proc_home():
     return os.path.dirname(os.path.abspath(sys.argv[0]))
+
+def get_script_name():
+    return os.path.abspath(sys.argv[0])
 
 
 def write_history(option: str, content: str, stat: Stat):
@@ -378,7 +382,7 @@ def run_sql(sql: str, conn, fold=True, columns=None):
         if not res:
             return
         fields = get_table_head_from_description(description)
-        print_result_set(fields, res, columns)
+        print_result_set(fields, res, columns, fold)
     else:
         run_no_sql(sql, conn, fold, columns)
 
@@ -398,7 +402,7 @@ def run_no_sql(no_sql, conn, fold=True, columns=None):
     rows, description, res = ExecNonQuery(no_sql, conn)
     res = list(res) if res else res
     if description and res and len(description) > 0:
-        print_result_set(get_table_head_from_description(description), res, columns)
+        print_result_set(get_table_head_from_description(description), res, columns, fold)
     if rows and format == 'table':
         print(INFO_COLOR.wrap('Effect rows:{}'.format(rows)))
 
@@ -442,7 +446,7 @@ def deal_human(rows):
     return new_rows
 
 
-def print_result_set(fields, res, columns):
+def print_result_set(fields, res, columns, fold=True):
     # 表头加上index
     fields = ['{}({})'.format(str(i), str(index)) for index, i in
               enumerate(fields)] if not columns and format == 'table' else list(fields)
@@ -560,50 +564,72 @@ def set_info(kv):
 
 
 def is_locked():
-    lock_file = os.path.join(get_proc_home(), '.db.lock')
-    return os.path.exists(lock_file)
+    lock_value_file = os.path.join(get_proc_home(), '.db.lock.value')
+    return os.path.exists(lock_value_file)
 
 
 def lock_value():
-    lock_file = os.path.join(get_proc_home(), '.db.lock')
+    lock_value_file = os.path.join(get_proc_home(), '.db.lock.value')
     val = None
     if is_locked():
-        with open(lock_file, 'r') as f:
+        with open(lock_value_file, 'r') as f:
             val = f.read()
     return val
 
 
 def unlock(key: str):
-    lock_val = lock_value()
-    if not lock_val:
-        print(ERROR_COLOR.wrap('The db is not locked.'))
-        write_history('unlock', key, Stat.ERROR)
-        return
-    key = key if key else ""
-    m = hashlib.md5()
-    m.update(key.encode('UTF-8'))
-    if m.hexdigest() == lock_val:
-        os.remove(os.path.join(get_proc_home(), '.db.lock'))
-        print(INFO_COLOR.wrap('db unlocked!'))
-        write_history('unlock', key, Stat.OK)
-    else:
-        print(ERROR_COLOR.wrap('Incorrect key.'))
-        write_history('unlock', key, Stat.ERROR)
+    with open(os.path.join(get_proc_home(), '.db.lock'), 'w') as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as bioe:
+            print(ERROR_COLOR.wrap("unlock fail, please retry!"))
+            sys.exit(-1)
+        lock_val = lock_value()
+        if not lock_val:
+            print(ERROR_COLOR.wrap('The db is not locked.'))
+            write_history('unlock', key, Stat.ERROR)
+            return
+        key = key if key else ""
+        m = hashlib.md5()
+        m.update(key.encode('UTF-8'))
+        if m.hexdigest() == lock_val:
+            os.remove(os.path.join(get_proc_home(), '.db.lock.value'))
+            print(INFO_COLOR.wrap('db unlocked!'))
+            write_history('unlock', key, Stat.OK)
+        else:
+            print(ERROR_COLOR.wrap('Incorrect key.'))
+            write_history('unlock', key, Stat.ERROR)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def lock(key: str):
-    if is_locked():
-        print(ERROR_COLOR.wrap('The db is already locked, you must unlock it first.'))
-        write_history('lock', '*' * 10, Stat.ERROR)
-        return
-    key = key if key else ""
-    m = hashlib.md5()
-    m.update(key.encode('UTF-8'))
-    lock_file = os.path.join(get_proc_home(), '.db.lock')
-    with open(lock_file, mode='w+') as f:
-        f.write(m.hexdigest())
-    print(INFO_COLOR.wrap('db locked!'))
-    write_history('lock', '*' * 10, Stat.OK)
+    with open(os.path.join(get_proc_home(), '.db.lock'), 'w') as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as bioe:
+            print(ERROR_COLOR.wrap("lock fail, please retry!"))
+            sys.exit(-1)
+        if is_locked():
+            print(ERROR_COLOR.wrap('The db is already locked, you must unlock it first.'))
+            write_history('lock', '*' * 10, Stat.ERROR)
+            return
+        key = key if key else ""
+        m = hashlib.md5()
+        m.update(key.encode('UTF-8'))
+        lock_file = os.path.join(get_proc_home(), '.db.lock.value')
+        with open(lock_file, mode='w+') as f:
+            try:
+                # 保证lock_file的读写安全
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as bioe:
+                print(ERROR_COLOR.wrap("lock fail, please retry!"))
+                write_history('lock', '*' * 10, Stat.ERROR)
+                sys.exit(-1)
+            f.write(m.hexdigest())
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        print(INFO_COLOR.wrap('db locked!'))
+        write_history('lock', '*' * 10, Stat.OK)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def parse_args(args):
@@ -720,7 +746,7 @@ def show_conf():
             new_row.append(conf)
             new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
-    print_result_set(head, print_content, list(range(len(head))))
+    print_result_set(head, print_content, list(range(len(head))), False)
     print(INFO_COLOR.wrap('If you need to add configuration , you need to append it in {} file.'.format(
         os.path.join(get_proc_home(), 'databaseconf.py'))))
 
