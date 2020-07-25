@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings("ignore")
 import fcntl
 import hashlib
 import json
@@ -139,15 +141,19 @@ def read_history():
     history_list = []
     if os.path.exists(file):
         with open(file, mode='r', encoding='UTF-8') as history_file:
+            fcntl.flock(history_file.fileno(), fcntl.LOCK_SH)
             history_list = history_file.readlines()
+            fcntl.flock(history_file.fileno(), fcntl.LOCK_UN)
+
         # history_list.reverse()
     return history_list
 
 
 def show_history():
     try:
-        for line in read_history():
-            print(line, end='')
+        table_head = ['time', 'option', 'value', 'stat']
+        res = [list(map(lambda cell: cell.replace("\n", ""), line.split('|'))) for line in read_history()]
+        print_result_set(table_head, res, [i for i in range(len(table_head))], fold=False)
         write_history('history', '', Stat.OK)
     except Exception as e:
         write_history('history', '', Stat.ERROR)
@@ -448,12 +454,12 @@ def deal_human(rows):
     return new_rows
 
 
-def print_result_set(fields, res, columns, fold=True):
+def print_result_set(header, res, columns, fold=True):
     # 表头加上index
-    fields = ['{}({})'.format(str(i), str(index)) for index, i in
-              enumerate(fields)] if not columns and format == 'table' else list(fields)
+    header = ['{}({})'.format(str(i), str(index)) for index, i in
+              enumerate(header)] if not columns and format == 'table' else list(header)
     res = list(res) if res else []
-    res.insert(0, fields)
+    res.insert(0, header)
     res = select_columns(res, columns) if columns else res
     res = deal_human(res) if human else res
     res = fold_res(res) if fold else res
@@ -461,14 +467,14 @@ def print_result_set(fields, res, columns, fold=True):
     chinese_head_length = get_fields_length(res, chinese_length_str)
     max_row_length = sum(chinese_head_length)
     max = 1 + max_row_length + 3 * len(chinese_head_length)
-    fields = res.pop(0)
+    header = res.pop(0)
     space_list_down = ['-' * i for i in chinese_head_length]
     if format == 'table':
         print(INFO_COLOR.wrap('Result Sets:'))
         print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     for index, r in enumerate(res):
         if index == 0:
-            print_row_format(fields, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
+            print_row_format(header, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
                              color=TABLE_HEAD_COLOR)
             if format == 'table':
                 print_row_format(space_list_down, chinese_head_length, color=Color.NO_COLOR)
@@ -536,8 +542,10 @@ def read_info():
     file = os.path.join(get_proc_home(), filename)
     if os.path.exists(file):
         with open(file, mode='r', encoding='UTF8') as info_file:
+            fcntl.flock(info_file.fileno(), fcntl.LOCK_SH)
             info_obj = json.loads(''.join(info_file.readlines()))
             parse_info_obj(info_obj, Opt.READ)
+            fcntl.flock(info_file.fileno(), fcntl.LOCK_UN)
 
 
 def write_info():
@@ -548,6 +556,7 @@ def write_info():
     with open(file, mode='w+', encoding='UTF8') as info_file:
         fcntl.flock(info_file.fileno(), fcntl.LOCK_EX)
         info_file.write(json.dumps(config_dic, indent=2))
+        info_file.flush()
         fcntl.flock(info_file.fileno(), fcntl.LOCK_UN)
 
 
