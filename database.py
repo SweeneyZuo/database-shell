@@ -98,6 +98,7 @@ config = {'env', 'conf'}
 
 
 def get_database_info_v2():
+    read_info()
     if CONF_KEY == DEFAULT_CONF:
         return None
     return dbconf[ENV_TYPE.value][CONF_KEY]
@@ -123,28 +124,30 @@ def get_script_name():
     return os.path.abspath(sys.argv[0])
 
 
-def write_history(option: str, content: str, stat: Stat):
+def write_history(option, content, stat):
     filename = '.{}_db.history'.format(datetime.now().date())
-    file = os.path.join(get_proc_home(), filename)
+    proc_home = get_proc_home()
+    file = os.path.join(proc_home, filename)
     time = datetime.now().strftime('%H:%M:%S')
-    with open(file, mode='a+', encoding='UTF-8') as history_file:
-        data = '{}|{}|{}|{}\n'.format(time, option, content, stat.value)
-        fcntl.flock(history_file.fileno(), fcntl.LOCK_EX)
-        history_file.write(data)
-        history_file.flush()
-        fcntl.flock(history_file.fileno(), fcntl.LOCK_UN)
+    data = '{}|{}|{}|{}\n'.format(time, option, content, stat.value)
+    with open(os.path.join(proc_home, '.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        with open(file, mode='a+', encoding='UTF-8') as history_file:
+            history_file.write(data)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def read_history():
     filename = '.{}_db.history'.format(datetime.now().date())
-    file = os.path.join(get_proc_home(), filename)
+    proc_home = get_proc_home()
+    file = os.path.join(proc_home, filename)
     history_list = []
     if os.path.exists(file):
-        with open(file, mode='r', encoding='UTF-8') as history_file:
-            fcntl.flock(history_file.fileno(), fcntl.LOCK_SH)
-            history_list = history_file.readlines()
-            fcntl.flock(history_file.fileno(), fcntl.LOCK_UN)
-
+        with open(os.path.join(proc_home, '.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            with open(file, mode='r', encoding='UTF-8') as history_file:
+                history_list = history_file.readlines()
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         # history_list.reverse()
     return history_list
 
@@ -539,45 +542,50 @@ def parse_info_obj(info_obj, opt=Opt.READ):
 
 def read_info():
     filename = '.db.info'
-    file = os.path.join(get_proc_home(), filename)
+    proc_home = get_proc_home()
+    file = os.path.join(proc_home, filename)
     if os.path.exists(file):
-        with open(file, mode='r', encoding='UTF8') as info_file:
-            fcntl.flock(info_file.fileno(), fcntl.LOCK_SH)
-            info_obj = json.loads(''.join(info_file.readlines()))
+        with open(os.path.join(proc_home, '.db.info.lock'), mode='w+') as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            with open(file, mode='r', encoding='UTF8') as info_file:
+                info_obj = json.loads(''.join(info_file.readlines()))
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             parse_info_obj(info_obj, Opt.READ)
-            fcntl.flock(info_file.fileno(), fcntl.LOCK_UN)
 
 
 def write_info():
     config_dic = {}
     config_dic['env'] = ENV_TYPE.value
     config_dic['conf'] = CONF_KEY
-    file = os.path.join(get_proc_home(), '.db.info')
-    with open(file, mode='w+', encoding='UTF8') as info_file:
-        fcntl.flock(info_file.fileno(), fcntl.LOCK_EX)
-        info_file.write(json.dumps(config_dic, indent=2))
-        info_file.flush()
-        fcntl.flock(info_file.fileno(), fcntl.LOCK_UN)
+    proc_home = get_proc_home()
+    file = os.path.join(proc_home, '.db.info')
+    with open(os.path.join(proc_home, '.db.info.lock'), mode='w+') as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        with open(file, mode='w+', encoding='UTF8') as info_file:
+            info_file.write(json.dumps(config_dic, indent=2))
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def set_info(kv):
     info_obj = {}
     try:
-        if is_locked():
-            print(ERROR_COLOR.wrap('db is locked! can\'t set value.'))
-            write_history('set', kv, Stat.ERROR)
-            return
         with open(os.path.join(get_proc_home(), '.db.lock'), 'w') as lock:
             try:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as bioe:
                 print(ERROR_COLOR.wrap("set fail, please retry!"))
-                sys.exit(-1)
+                return
+            if is_locked():
+                print(ERROR_COLOR.wrap('db is locked! can\'t set value.'))
+                write_history('set', kv, Stat.ERROR)
+                return
+            read_info()
             kv_pair = kv.split('=')
             info_obj[kv_pair[0]] = kv_pair[1]
             parse_info_obj(info_obj, Opt.UPDATE)
-            write_history('set', kv, Stat.OK)
+            write_info()
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            write_history('set', kv, Stat.OK)
     except Exception as e:
         write_history('set', kv, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
@@ -597,13 +605,13 @@ def lock_value():
     return val
 
 
-def unlock(key: str):
+def unlock(key):
     with open(os.path.join(get_proc_home(), '.db.lock'), 'w') as lock:
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as bioe:
             print(ERROR_COLOR.wrap("unlock fail, please retry!"))
-            sys.exit(-1)
+            return
         lock_val = lock_value()
         if not lock_val:
             print(ERROR_COLOR.wrap('The db is not locked.'))
@@ -615,7 +623,7 @@ def unlock(key: str):
         if m.hexdigest() == lock_val:
             os.remove(os.path.join(get_proc_home(), '.db.lock.value'))
             print(INFO_COLOR.wrap('db unlocked!'))
-            write_history('unlock', key, Stat.OK)
+            write_history('unlock', '*' * 6, Stat.OK)
         else:
             print(ERROR_COLOR.wrap('Incorrect key.'))
             write_history('unlock', key, Stat.ERROR)
@@ -623,15 +631,15 @@ def unlock(key: str):
 
 
 def lock(key: str):
-    with open(os.path.join(get_proc_home(), '.db.lock'), 'w') as lock:
+    with open(os.path.join(get_proc_home(), '.db.lock'), 'w+') as lock:
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as bioe:
             print(ERROR_COLOR.wrap("lock fail, please retry!"))
-            sys.exit(-1)
+            return
         if is_locked():
             print(ERROR_COLOR.wrap('The db is already locked, you must unlock it first.'))
-            write_history('lock', '*' * 10, Stat.ERROR)
+            write_history('lock', '*' * 6, Stat.ERROR)
             return
         key = key if key else ""
         m = hashlib.md5()
@@ -639,9 +647,9 @@ def lock(key: str):
         lock_file = os.path.join(get_proc_home(), '.db.lock.value')
         with open(lock_file, mode='w+') as f:
             f.write(m.hexdigest())
-        print(INFO_COLOR.wrap('db locked!'))
-        write_history('lock', '*' * 10, Stat.OK)
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        print(INFO_COLOR.wrap('db locked!'))
+        write_history('lock', '*' * 6, Stat.OK)
 
 
 def parse_args(args):
@@ -675,15 +683,6 @@ def parse_args(args):
 
     return option, colums, fold, option_val
 
-
-def start():
-    read_info()
-
-
-def end():
-    write_info()
-
-
 def print_usage():
     print('''usage: db [options]
       options:
@@ -714,7 +713,7 @@ def shell():
             run_sql(val, conn)
         val = input('db>')
     conn.close()
-    sys.exit(0)
+    write_history('shell','',Stat.OK)
 
 
 def load(path):
@@ -761,10 +760,10 @@ def show_conf():
     print_result_set(head, print_content, list(range(len(head))), False)
     print(INFO_COLOR.wrap('If you need to add configuration , you need to append it in {} file.'.format(
         os.path.join(get_proc_home(), 'databaseconf.py'))))
+    write_history('conf','',Stat.OK)
 
 
 if __name__ == '__main__':
-    start()
     opt, colums, fold, option_val = parse_args(sys.argv)
     if opt == 'info' or opt == '':
         print_info()
@@ -793,4 +792,3 @@ if __name__ == '__main__':
     else:
         print(ERROR_COLOR.wrap("Invalid operation!!!"))
         print_usage()
-    end()
