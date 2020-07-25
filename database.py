@@ -574,6 +574,7 @@ def set_info(kv):
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as bioe:
                 print(ERROR_COLOR.wrap("set fail, please retry!"))
+                write_history('set', kv, Stat.ERROR)
                 return
             if is_locked():
                 print(ERROR_COLOR.wrap('db is locked! can\'t set value.'))
@@ -611,11 +612,12 @@ def unlock(key):
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as bioe:
             print(ERROR_COLOR.wrap("unlock fail, please retry!"))
+            write_history('unlock', '*' * 6, Stat.ERROR)
             return
         lock_val = lock_value()
         if not lock_val:
             print(ERROR_COLOR.wrap('The db is not locked.'))
-            write_history('unlock', key, Stat.ERROR)
+            write_history('unlock',  '*' * 6, Stat.ERROR)
             return
         key = key if key else ""
         m = hashlib.md5()
@@ -636,6 +638,7 @@ def lock(key: str):
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as bioe:
             print(ERROR_COLOR.wrap("lock fail, please retry!"))
+            write_history('lock', '*' * 6, Stat.ERROR)
             return
         if is_locked():
             print(ERROR_COLOR.wrap('The db is already locked, you must unlock it first.'))
