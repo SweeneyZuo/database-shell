@@ -1,4 +1,5 @@
 import warnings
+
 warnings.filterwarnings("ignore")
 import fcntl
 import hashlib
@@ -13,12 +14,13 @@ from enum import Enum
 
 import pymssql
 
-from databaseconf import data_base_dict as dbconf
-
 
 class DatabaseType(Enum):
     SQLSERVER = 'sqlserver'
     MYSQL = 'mysql'
+
+    def support(servertype):
+        return servertype in set(map(lambda x: x.lower(), DatabaseType.__members__))
 
 
 class EnvType(Enum):
@@ -94,31 +96,57 @@ ERROR_COLOR = Color.RED
 WARN_COLOR = Color.KHAKI
 FOLD_COLOR = Color.BLACK_WHITE_TWINKLE
 
-config = {'env', 'conf'}
+config = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit']
+
+
+def check_conf(conf: dict):
+    if 'servertype' not in conf.keys():
+        print(WARN_COLOR.wrap('please set servertype!'))
+        return False
+    elif 'host' not in conf.keys():
+        print(WARN_COLOR.wrap('please set host!'))
+        return False
+    elif 'port' not in conf.keys():
+        print(WARN_COLOR.wrap('please set port!'))
+        return False
+    elif 'user' not in conf.keys():
+        print(WARN_COLOR.wrap('please set user!'))
+        return False
+    elif 'password' not in conf.keys():
+        print(WARN_COLOR.wrap('please set password!'))
+        return False
+    elif 'database' not in conf.keys():
+        print(WARN_COLOR.wrap('please set database!'))
+        return False
+    return True
 
 
 def get_database_info_v2():
-    read_info()
-    if CONF_KEY == DEFAULT_CONF:
+    dbconf = read_info()
+    if dbconf['use']['conf'] == DEFAULT_CONF:
         return None
-    return dbconf[ENV_TYPE.value][CONF_KEY]
+    return dbconf
 
 
-def show_database_info(**kwargs):
+def show_database_info(info):
+    env = info['use']['env'] if info else ''
+    conf_name = info['use']['conf'] if info else ''
+    conf = info['conf'][env].get(conf_name, {})
     print(INFO_COLOR.wrap(
         '[DATABASE INFO]: env={}, conf={}, serverType={}, host={}, port={}, user={}, password={}, database={}, lockStat={}.'.format(
-            ENV_TYPE.value, CONF_KEY,
-            kwargs.get('servertype', ''),
-            kwargs.get('host', ''),
-            kwargs.get('port', ''),
-            kwargs.get('user', ''),
-            kwargs.get('password', ''),
-            kwargs.get('database', ''),
+            env, conf_name,
+            conf.get('servertype', ''),
+            conf.get('host', ''),
+            conf.get('port', ''),
+            conf.get('user', ''),
+            conf.get('password', ''),
+            conf.get('database', ''),
             is_locked())))
 
 
 def get_proc_home():
     return os.path.dirname(os.path.abspath(sys.argv[0]))
+
 
 def get_script_name():
     return os.path.abspath(sys.argv[0])
@@ -152,34 +180,43 @@ def read_history():
     return history_list
 
 
-def show_history():
+def show_history(fold):
     try:
         table_head = ['time', 'option', 'value', 'stat']
         res = [list(map(lambda cell: cell.replace("\n", ""), line.split('|'))) for line in read_history()]
-        print_result_set(table_head, res, [i for i in range(len(table_head))], fold=False)
+        print_result_set(table_head, res, [i for i in range(len(table_head))], fold)
         write_history('history', '', Stat.OK)
-    except Exception as e:
+    except BaseException as e:
         write_history('history', '', Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
 
 
 def get_connection_v2():
-    config = get_database_info_v2()
-    if config is None:
-        sys.exit(0)
+    info = get_database_info_v2()
+    if info is None:
+        return None, None
     if format == 'table':
-        show_database_info(**config)
+        show_database_info(info)
+    config = info['conf'][info['use']['env']].get(info['use']['conf'], {})
+    if not check_conf(config):
+        return None, config
     server_type = config['servertype']
-    if server_type == 'mysql':
-        return pymysql.connect(host=config['host'], user=config['user'], password=config['password'],
-                               database=config['database'], port=config['port'], charset=config.get('charset', 'UTF8'),
-                               autocommit=config.get('autocommit', False)), config
-    elif server_type == 'sqlserver':
-        return pymssql.connect(host=config['host'], user=config['user'], password=config['password'],
-                               database=config['database'], port=config['port'], charset=config.get('charset', 'UTF8'),
-                               autocommit=config.get('autocommit', False)), config
-    else:
-        print(ERROR_COLOR.wrap("servertype error! servertype={}".format(server_type)))
+    try:
+        if server_type == 'mysql':
+            return pymysql.connect(host=config['host'], user=config['user'], password=config['password'],
+                                   database=config['database'], port=config['port'],
+                                   charset=config.get('charset', 'UTF8'),
+                                   autocommit=config.get('autocommit', False)), config
+        elif server_type == 'sqlserver':
+            return pymssql.connect(host=config['host'], user=config['user'], password=config['password'],
+                                   database=config['database'], port=config['port'],
+                                   charset=config.get('charset', 'UTF8'),
+                                   autocommit=config.get('autocommit', False)), config
+        else:
+            print(ERROR_COLOR.wrap("servertype error! servertype={}".format(server_type)))
+    except BaseException as e:
+        print(ERROR_COLOR.wrap(e))
+        return None, config
 
 
 def get_tab_name_from_sql(sql: str):
@@ -222,7 +259,7 @@ def ExecQuery(sql, conn):
             res_list.extend(cur.fetchall())
         description = cur.description
         write_history('sql', sql, Stat.OK)
-    except Exception as e:
+    except BaseException as e:
         write_history('sql', sql, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
     return description, res_list
@@ -242,7 +279,7 @@ def ExecNonQuery(sql, conn):
             print(WARN_COLOR.wrap('No Result Sets!'))
         conn.commit()
         write_history('sql', sql, Stat.OK)
-    except Exception as e:
+    except BaseException as e:
         write_history('sql', sql, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
     return rows, description, res
@@ -329,6 +366,8 @@ def get_fields_length(rows, func):
 
 def show_sys_tables():
     conn, conf = get_connection_v2()
+    if conn is None:
+        return
     servertype = conf['servertype']
     if servertype == 'mysql':
         sql = 'SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA=\'{}\''.format(conf['database'])
@@ -340,6 +379,8 @@ def show_sys_tables():
 
 def desc_table(tab_name, fold, columns):
     conn, conf = get_connection_v2()
+    if conn is None:
+        return
     if tab_name and tab_name.startswith('tbl_process_action_record'):
         tab_name = 'tbl_process_action_record_0'
     sql = 'desc {}'.format(tab_name)
@@ -400,6 +441,8 @@ def run_sql(sql: str, conn, fold=True, columns=None):
 
 def run_one_sql(sql: str, fold=True, columns=None):
     conn, conf = get_connection_v2()
+    if conn is None:
+        return
     run_sql(sql, conn, fold, columns)
     conn.close()
 
@@ -493,9 +536,9 @@ def print_info():
     try:
         config = get_database_info_v2()
         config = {} if config is None else config
-        show_database_info(**config)
+        show_database_info(config)
         write_history('info', '', Stat.OK)
-    except Exception as  e:
+    except BaseException as  e:
         write_history('info', '', Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
 
@@ -516,44 +559,56 @@ class Opt(Enum):
     READ = 'read'
 
 
-def parse_info_obj(info_obj, opt=Opt.READ):
+def parse_info_obj(read_info, info_obj, opt=Opt.READ):
     if info_obj:
-        global ENV_TYPE, CONF_KEY
-        conf_key_list = [conf_key for conf_key in info_obj.keys() if conf_key.lower() in config]
-        if len(conf_key_list) >= 2 and 'env' in conf_key_list:
-            conf_key_list.remove('env')
-            conf_key_list.insert(0, 'env')
-        for conf_key in conf_key_list:
-            if conf_key.lower() == 'env':
-                ENV_TYPE = EnvType(info_obj[conf_key].lower())
+        for conf_key in config:
+            if conf_key not in info_obj.keys():
+                continue
+            set_conf_value = info_obj[conf_key]
+            if conf_key == 'env':
+                read_info['use']['env'] = EnvType(set_conf_value).value
                 if opt is Opt.UPDATE:
-                    print(INFO_COLOR.wrap("set env={} ok.".format(ENV_TYPE.value)))
-            elif conf_key.lower() == 'conf':
-                if info_obj[conf_key].lower() in dbconf[ENV_TYPE.value].keys():
-                    CONF_KEY = info_obj[conf_key].lower()
+                    print(INFO_COLOR.wrap("set env={} ok.".format(set_conf_value)))
+                continue
+            elif conf_key == 'conf':
+                if set_conf_value in read_info['conf'][read_info['use']['env']].keys():
                     if opt is Opt.UPDATE:
-                        print(INFO_COLOR.wrap("set conf={} ok.".format(CONF_KEY)))
+                        read_info['use']['conf'] = set_conf_value
+                        print(INFO_COLOR.wrap("set conf={} ok.".format(set_conf_value)))
                 elif opt is Opt.UPDATE:
-                    print(ERROR_COLOR.wrap(
-                        "Not found \"{}\" conf in env={}".format(info_obj[conf_key].lower(), ENV_TYPE.value)))
-        if CONF_KEY == DEFAULT_CONF and opt is not Opt.WRITE:
-            print(ERROR_COLOR.wrap("please set conf!"))
+                    read_info['use']['conf'] = set_conf_value
+                    read_info['conf'][read_info['use']['env']][read_info['use']['conf']] = {}
+                    print(WARN_COLOR.wrap(
+                        "Add \"{}\" conf in env={}".format(set_conf_value, read_info['use']['env'])))
+                continue
+            elif conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
+                continue
+            elif conf_key == 'autocommit':
+                set_conf_value = set_conf_value == 'true'
+            elif conf_key == 'port':
+                if not set_conf_value.isdigit():
+                    print(ERROR_COLOR.wrap('set port={} fail'.format(set_conf_value)))
+                    continue
+                set_conf_value = int(set_conf_value)
+            read_info['conf'][read_info['use']['env']][read_info['use']['conf']][conf_key] = set_conf_value
+        # if CONF_KEY == DEFAULT_CONF and opt is not Opt.WRITE:
+        #     print(ERROR_COLOR.wrap("please set conf!"))
+    return read_info
 
 
 def read_info():
     filename = '.db.info'
     proc_home = get_proc_home()
     file = os.path.join(proc_home, filename)
-    if os.path.exists(file):
-        with open(os.path.join(proc_home, '.db.info.lock'), mode='w+') as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            with open(file, mode='r', encoding='UTF8') as info_file:
-                info_obj = json.loads(''.join(info_file.readlines()))
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-            parse_info_obj(info_obj, Opt.READ)
+    with open(os.path.join(proc_home, '.db.info.lock'), mode='w+') as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        with open(file, mode='r', encoding='UTF8') as info_file:
+            info_obj = json.loads(''.join(info_file.readlines()))
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    return info_obj
 
 
-def write_info():
+def write_info(info):
     config_dic = {}
     config_dic['env'] = ENV_TYPE.value
     config_dic['conf'] = CONF_KEY
@@ -563,6 +618,8 @@ def write_info():
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='w+', encoding='UTF8') as info_file:
             info_file.write(json.dumps(config_dic, indent=2))
+        with open(os.path.join(proc_home, '.db.info'), mode='w+', encoding='UTF8') as dbconf:
+            dbconf.write(json.dumps(info, indent=2))
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
@@ -580,14 +637,12 @@ def set_info(kv):
                 print(ERROR_COLOR.wrap('db is locked! can\'t set value.'))
                 write_history('set', kv, Stat.ERROR)
                 return
-            read_info()
             kv_pair = kv.split('=')
             info_obj[kv_pair[0]] = kv_pair[1]
-            parse_info_obj(info_obj, Opt.UPDATE)
-            write_info()
+            write_info(parse_info_obj(read_info(), info_obj, Opt.UPDATE))
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             write_history('set', kv, Stat.OK)
-    except Exception as e:
+    except BaseException as e:
         write_history('set', kv, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
 
@@ -617,7 +672,7 @@ def unlock(key):
         lock_val = lock_value()
         if not lock_val:
             print(ERROR_COLOR.wrap('The db is not locked.'))
-            write_history('unlock',  '*' * 6, Stat.ERROR)
+            write_history('unlock', '*' * 6, Stat.ERROR)
             return
         key = key if key else ""
         m = hashlib.md5()
@@ -686,7 +741,8 @@ def parse_args(args):
 
     return option, colums, fold, option_val
 
-def print_usage():
+
+def print_usage(error_condition=False):
     print('''usage: db [options]
       options:
         help, display this help and exit.
@@ -706,23 +762,29 @@ def print_usage():
         set, <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
         lock, <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
         unlock, <passwd> unlock database configuration.''')
+    if not error_condition:
+        write_history('help', '', Stat.OK)
 
 
 def shell():
     conn, conf = get_connection_v2()
+    if conn is None:
+        return
     val = input('db>')
     while val != 'quit':
         if not (val == '' or val.strip() == ''):
             run_sql(val, conn)
         val = input('db>')
     conn.close()
-    write_history('shell','',Stat.OK)
+    write_history('shell', '', Stat.OK)
 
 
 def load(path):
     try:
         if os.path.exists(path):
             conn, config = get_connection_v2()
+            if conn is None:
+                return
             cur = conn.cursor()
             success_num, fail_num = 0, 0
             with open(path, mode='r', encoding='UTF8') as sql_file:
@@ -736,23 +798,24 @@ def load(path):
                         try:
                             cur.execute(sql)
                             success_num += 1
-                        except Exception as e:
+                        except BaseException as e:
                             fail_num += 1
                             print(ERROR_COLOR.wrap(e))
             conn.commit()
             conn.close()
-            write_history('load', path, Stat.OK)
             print(INFO_COLOR.wrap('load ok. {} successfully executed, {} failed.'.format(success_num, fail_num)))
+            write_history('load', path, Stat.OK)
         else:
             print(ERROR_COLOR.wrap("path:{} not exist!".format(path)))
             write_history('load', path, Stat.ERROR)
-    except Exception as e:
+    except BaseException as e:
         print(ERROR_COLOR.wrap("load {} fail! {}".format(path, e)))
         write_history('load', path, Stat.ERROR)
 
 
 def show_conf():
     print_content = []
+    dbconf = read_info()['conf']
     head = ['env', 'conf', 'servertype', 'host', 'port', 'database', 'user', 'password', 'charset', 'autocommit']
     for env in dbconf.keys():
         for conf in dbconf[env].keys():
@@ -761,37 +824,38 @@ def show_conf():
             new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
     print_result_set(head, print_content, list(range(len(head))), False)
-    print(INFO_COLOR.wrap('If you need to add configuration , you need to append it in {} file.'.format(
-        os.path.join(get_proc_home(), 'databaseconf.py'))))
-    write_history('conf','',Stat.OK)
+    write_history('conf', '', Stat.OK)
 
 
 if __name__ == '__main__':
-    opt, colums, fold, option_val = parse_args(sys.argv)
-    if opt == 'info' or opt == '':
-        print_info()
-    elif opt == 'show':
-        show_sys_tables()
-    elif opt == 'conf':
-        show_conf()
-    elif opt == 'hist' or opt == 'history':
-        show_history()
-    elif opt == 'desc':
-        desc_table(option_val, fold, colums)
-    elif opt == 'sql':
-        run_one_sql(option_val, fold, colums)
-    elif opt == 'set':
-        set_info(option_val)
-    elif opt == 'lock':
-        lock(option_val)
-    elif opt == 'unlock':
-        unlock(option_val)
-    elif opt == 'shell':
-        shell()
-    elif opt == 'load':
-        load(option_val)
-    elif opt == 'help':
-        print_usage()
-    else:
-        print(ERROR_COLOR.wrap("Invalid operation!!!"))
-        print_usage()
+    try:
+        opt, colums, fold, option_val = parse_args(sys.argv)
+        if opt == 'info' or opt == '':
+            print_info()
+        elif opt == 'show':
+            show_sys_tables()
+        elif opt == 'conf':
+            show_conf()
+        elif opt == 'hist' or opt == 'history':
+            show_history(fold)
+        elif opt == 'desc':
+            desc_table(option_val, fold, colums)
+        elif opt == 'sql':
+            run_one_sql(option_val, fold, colums)
+        elif opt == 'set':
+            set_info(option_val)
+        elif opt == 'lock':
+            lock(option_val)
+        elif opt == 'unlock':
+            unlock(option_val)
+        elif opt == 'shell':
+            shell()
+        elif opt == 'load':
+            load(option_val)
+        elif opt == 'help':
+            print_usage()
+        else:
+            print(ERROR_COLOR.wrap("Invalid operation!!!"))
+            print_usage(error_condition=True)
+    except BaseException as e:
+        print(ERROR_COLOR.wrap(e))
