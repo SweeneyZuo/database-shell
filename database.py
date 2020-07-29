@@ -99,7 +99,11 @@ FOLD_COLOR = Color.BLACK_WHITE_TWINKLE
 config = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit']
 
 
-def check_conf(conf: dict):
+def check_conf(dbconf: dict):
+    if dbconf['use']['conf'] == DEFAULT_CONF:
+        print(WARN_COLOR.wrap('please set conf!'))
+        return False
+    conf = dbconf['conf'][dbconf['use']['env']][dbconf['use']['conf']]
     if 'servertype' not in conf.keys():
         print(WARN_COLOR.wrap('please set servertype!'))
         return False
@@ -123,15 +127,13 @@ def check_conf(conf: dict):
 
 def get_database_info_v2():
     dbconf = read_info()
-    if dbconf['use']['conf'] == DEFAULT_CONF:
-        return None
     return dbconf
 
 
 def show_database_info(info):
     env = info['use']['env'] if info else ''
     conf_name = info['use']['conf'] if info else ''
-    conf = info['conf'][env].get(conf_name, {})
+    conf = info['conf'][env].get(conf_name, {}) if info else {}
     print(INFO_COLOR.wrap(
         '[DATABASE INFO]: env={}, conf={}, serverType={}, host={}, port={}, user={}, password={}, database={}, lockStat={}.'.format(
             env, conf_name,
@@ -193,13 +195,11 @@ def show_history(fold):
 
 def get_connection_v2():
     info = get_database_info_v2()
-    if info is None:
-        return None, None
     if format == 'table':
         show_database_info(info)
+    if not check_conf(info):
+        return None, None
     config = info['conf'][info['use']['env']].get(info['use']['conf'], {})
-    if not check_conf(config):
-        return None, config
     server_type = config['servertype']
     try:
         if server_type == 'mysql':
@@ -333,11 +333,8 @@ def print_row_format(row, head_length,
         space_num = 0
         if format == 'table':
             space_num = abs(chinese_length_str(e_str) - head_length[index])
-        if index == 0:
-            if format == 'csv':
-                print("\ufeff", end='')
-            elif format == 'table':
-                print('| ', end='')
+        if index == 0 and format == 'table':
+            print('| ', end='')
         if format == 'csv' and index == len(row) - 1:
             end_str = ''
         if isdigit(e):
@@ -520,6 +517,8 @@ def print_result_set(header, res, columns, fold=True):
         print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     for index, r in enumerate(res):
         if index == 0:
+            if format == 'csv':
+                print("\ufeff", end='')
             print_row_format(header, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
                              color=TABLE_HEAD_COLOR)
             if format == 'table':
@@ -576,10 +575,12 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
                         read_info['use']['conf'] = set_conf_value
                         print(INFO_COLOR.wrap("set conf={} ok.".format(set_conf_value)))
                 elif opt is Opt.UPDATE:
-                    read_info['use']['conf'] = set_conf_value
-                    read_info['conf'][read_info['use']['env']][read_info['use']['conf']] = {}
-                    print(WARN_COLOR.wrap(
-                        "Add \"{}\" conf in env={}".format(set_conf_value, read_info['use']['env'])))
+                    i = input(WARN_COLOR.wrap("Are you sure you want to add this configuration? Y/N:"))
+                    if i.lower() == 'y' or i.lower() == 'yes':
+                        read_info['use']['conf'] = set_conf_value
+                        read_info['conf'][read_info['use']['env']][read_info['use']['conf']] = {}
+                        print(INFO_COLOR.wrap(
+                            "Add \"{}\" conf in env={}".format(set_conf_value, read_info['use']['env'])))
                 continue
             elif conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
                 continue
