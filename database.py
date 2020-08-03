@@ -430,8 +430,11 @@ def run_sql(sql: str, conn, fold=True, columns=None):
         description, res = ExecQuery(sql, conn)
         if not res:
             return
-        fields = get_table_head_from_description(description)
-        print_result_set(fields, res, columns, fold)
+        header = get_table_head_from_description(description)
+        if format == 'sql':
+            print_insert_sql(header, res, get_tab_name_from_sql(sql))
+            return
+        print_result_set(header, res, columns, fold)
     else:
         run_no_sql(sql, conn, fold, columns)
 
@@ -495,6 +498,30 @@ def deal_human(rows):
         for col_index, e in enumerate(row):
             new_rows[row_index].append(_human_time(e) if col_index in human_time_cols else e)
     return new_rows
+
+
+def print_insert_sql(header, res, tab_name):
+    header = list(map(lambda x: str(x), header))
+
+    def _case_for_sql(row):
+        res = []
+        for e in row:
+            if e is None:
+                res.append("NULL")
+            elif isinstance(e, int) or isinstance(e, float):
+                res.append(str(e))
+            elif isinstance(e, str):
+                e = e.replace("'", "''")
+                res.append("'{}'".format(e))
+            else:
+                print(WARN_COLOR.wrap("TYPE WARN:{}".format(type(e))))
+                res.append("'{}'".format(e))
+        return res
+
+    template = "INSERT INTO {} ({}) VALUES ({});".format(tab_name, ",".join(header), "{}")
+    for row in res:
+        print(template.format(",".join(_case_for_sql(row))))
+    return
 
 
 def print_result_set(header, res, columns, fold=True):
@@ -737,6 +764,10 @@ def parse_args(args):
                 disable_color()
                 format = 'csv'
                 fold = False
+            elif option == 'sql' and p == 'sql':
+                disable_color()
+                format = 'sql'
+                fold = False
             elif p == 'human':
                 human = True
 
@@ -754,11 +785,11 @@ hist        list today's command history.
 desc        <table name> view the description information of the table.
 load        <sql file> import sql file.
 shell       start an interactive shell.
-sql         <sql> [false] [raw] [human] [csv] [column index]
+sql         <sql> [false] [raw] [human] [format] [column index]
             [false], disable fold.
             [raw], disable all color.
             [human], print timestamp in human readable, the premise is that the field contains "time".
-            [csv], print in csv format.
+            [format], Print format: csv, table and sql, the default is table.
             [column index], print specific columns, example: "0,1,2" or "0-2".
 set         <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
 lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
