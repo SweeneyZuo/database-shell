@@ -424,6 +424,15 @@ def fold_res(res):
     return res
 
 
+def print_json(header, res):
+    global human
+    for row in res:
+        if human:
+            print(json.dumps(dict(zip(header, row)), indent=2))
+        else:
+            print(json.dumps(dict(zip(header, row))))
+
+
 def run_sql(sql: str, conn, fold=True, columns=None):
     sql = sql.strip()
     if sql.lower().startswith('select'):
@@ -433,8 +442,10 @@ def run_sql(sql: str, conn, fold=True, columns=None):
         header = get_table_head_from_description(description)
         if format == 'sql':
             print_insert_sql(header, res, get_tab_name_from_sql(sql))
-            return
-        print_result_set(header, res, columns, fold)
+        elif format == 'json':
+            print_json(header, res)
+        else:
+            print_result_set(header, res, columns, fold)
     else:
         run_no_sql(sql, conn, fold, columns)
 
@@ -764,9 +775,9 @@ def parse_args(args):
                 disable_color()
                 format = 'csv'
                 fold = False
-            elif option == 'sql' and p == 'sql':
+            elif option == 'sql' and p in ('json','sql'):
                 disable_color()
-                format = 'sql'
+                format = p
                 fold = False
             elif p == 'human':
                 human = True
@@ -789,7 +800,7 @@ sql         <sql> [false] [raw] [human] [format] [column index]
             [false], disable fold.
             [raw], disable all color.
             [human], print timestamp in human readable, the premise is that the field contains "time".
-            [format], Print format: csv, table and sql, the default is table.
+            [format], Print format: csv, table, json and sql, the default is table.
             [column index], print specific columns, example: "0,1,2" or "0-2".
 set         <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
 lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
