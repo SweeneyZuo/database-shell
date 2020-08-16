@@ -443,7 +443,7 @@ def print_html(header, res):
         if index == 0:
             print("<tr>", end="")
         head = "" if head is None else head
-        print("<th>{}</th>".format(head), end= "")
+        print("<th>{}</th>".format(head), end="")
         if index == l:
             print("</tr>")
     for row in res:
@@ -456,6 +456,17 @@ def print_html(header, res):
                 print("</tr>")
     print("</table>\n</body>\n</html>")
 
+
+def print_xml(header, res):
+    global human
+    end = '\n' if human else ""
+    for row in res:
+        for h, e in zip(header, row):
+            if e is None:
+                print("<{}/>".format(h), end=end)
+            else:
+                print("<{}>{}</{}>".format(h, e, h), end=end)
+        print()
 
 def run_sql(sql: str, conn, fold=True, columns=None):
     sql = sql.strip()
@@ -470,6 +481,8 @@ def run_sql(sql: str, conn, fold=True, columns=None):
             print_json(header, res)
         elif format == 'html':
             print_html(header, res)
+        elif format == 'xml':
+            print_xml(header, res)
         else:
             print_result_set(header, res, columns, fold)
     else:
@@ -801,7 +814,7 @@ def parse_args(args):
                 disable_color()
                 format = 'csv'
                 fold = False
-            elif option == 'sql' and p in ('json', 'sql', 'html'):
+            elif option == 'sql' and p in ('json', 'sql', 'html', 'xml'):
                 disable_color()
                 format = p
                 fold = False
@@ -826,7 +839,7 @@ sql         <sql> [false] [raw] [human] [format] [column index]
             [false], disable fold.
             [raw], disable all color.
             [human], print timestamp in human readable, the premise is that the field contains "time".
-            [format], Print format: csv, table, html, json and sql, the default is table.
+            [format], Print format: csv, table, html, xml, json and sql, the default is table.
             [column index], print specific columns, example: "0,1,2" or "0-2".
 set         <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
 lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
