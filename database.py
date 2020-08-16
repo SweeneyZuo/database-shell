@@ -269,10 +269,10 @@ def ExecQuery(sql, conn):
 
 def ExecNonQuery(sql, conn):
     sql = sql.strip()
-    rows, description, res = None, None, []
+    effect_rows, description, res = None, None, []
     try:
         cur = conn.cursor()
-        rows = cur.execute(sql)
+        effect_rows = cur.execute(sql)
         description = cur.description
         res = None
         try:
@@ -284,7 +284,7 @@ def ExecNonQuery(sql, conn):
     except BaseException as e:
         write_history('sql', sql, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
-    return rows, description, res
+    return effect_rows, description, res
 
 
 def chinese_length_str(obj):
@@ -378,10 +378,25 @@ def desc_table(tab_name, fold, columns):
         return
     if tab_name and tab_name.startswith('tbl_process_action_record'):
         tab_name = 'tbl_process_action_record_0'
-    sql = 'desc {}'.format(tab_name)
-    if conf['servertype'] == 'sqlserver':
-        sql = 'sp_columns {}'.format(tab_name)
-    run_no_sql(sql, conn, fold, columns)
+
+    def print_description():
+        sql = 'desc {}'.format(tab_name)
+        if conf['servertype'] == 'sqlserver':
+            sql = 'sp_columns {}'.format(tab_name)
+        run_no_sql(sql, conn, fold, columns)
+
+    def print_create_table():
+        sql = 'show create table {}'.format(tab_name)
+        if conf['servertype'] == 'sqlserver':
+            # TODO
+            sql = ''
+        effect_rows, description, res = ExecNonQuery(sql, conn)
+        header, res = before_print(get_table_head_from_description(description), res, [1], fold=False)
+        print(res[0][0])
+    if format == 'sql':
+        print_create_table()
+    else:
+        print_description()
     conn.close()
 
 
@@ -509,10 +524,11 @@ def deal_bin(res):
     for row in res:
         for index, e in enumerate(row):
             if isinstance(e, bytearray) or isinstance(e, bytes):
-                row[index] = str(base64.standard_b64encode(e),'utf8')
+                row[index] = str(base64.standard_b64encode(e), 'utf8')
 
 
 def before_print(header, res, columns, fold=True):
+    res = [] if res is None else list(res)
     res.insert(0, header)
     res = [[line[i] for i in columns] for line in res] if columns else res
     res = [list(row) for row in res]
@@ -533,13 +549,13 @@ def run_one_sql(sql: str, fold=True, columns=None):
 
 def run_no_sql(no_sql, conn, fold=True, columns=None):
     no_sql = no_sql.strip()
-    rows, description, res = ExecNonQuery(no_sql, conn)
+    effect_rows, description, res = ExecNonQuery(no_sql, conn)
     res = list(res) if res else res
     if description and res and len(description) > 0:
         header, res = before_print(get_table_head_from_description(description), res, columns, fold)
         print_table(header, res, columns)
-    if rows and format == 'table':
-        print(INFO_COLOR.wrap('Effect rows:{}'.format(rows)))
+    if effect_rows and format == 'table':
+        print(INFO_COLOR.wrap('Effect rows:{}'.format(effect_rows)))
 
 
 def deal_csv(res):
@@ -831,11 +847,8 @@ def parse_args(args):
                         else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
             elif p == 'raw':
                 disable_color()
-            elif p == 'csv':
-                disable_color()
-                format = 'csv'
-                fold = False
-            elif option == 'sql' and p in ('json', 'sql', 'html', 'xml'):
+            elif (option == 'desc' and p == 'sql') or \
+                    (option == 'sql' and p in ('json', 'sql', 'html', 'xml', 'csv')):
                 disable_color()
                 format = p
                 fold = False
