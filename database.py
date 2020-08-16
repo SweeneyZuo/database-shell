@@ -433,6 +433,30 @@ def print_json(header, res):
             print(json.dumps(dict(zip(header, row))))
 
 
+def print_html(header, res):
+    h = "<head>\n<style>\ntable{\nborder-collapse: collapse;\nwidth: 100%;\n}\nth, td{\ntext-align: left;\npadding: " \
+        "8px;\n}\ntr:nth-child(even){\nbackground-color: #fafafa;\n}\nth{\nbackground-color: #7799AA;\ncolor: " \
+        "white;\n}\n</style>\n</head> "
+    print("<html>\n{}\n<body>\n<table>".format(h))
+    l = len(header) - 1
+    for index, head in enumerate(header):
+        if index == 0:
+            print("<tr>", end="")
+        head = "" if head is None else head
+        print("<th>{}</th>".format(head), end= "")
+        if index == l:
+            print("</tr>")
+    for row in res:
+        for index, e in enumerate(row):
+            if index == 0:
+                print("<tr>", end="")
+            e = "" if e is None else e
+            print("<td>{}</td>".format(e), end="")
+            if index == l:
+                print("</tr>")
+    print("</table>\n</body>\n</html>")
+
+
 def run_sql(sql: str, conn, fold=True, columns=None):
     sql = sql.strip()
     if sql.lower().startswith('select'):
@@ -444,6 +468,8 @@ def run_sql(sql: str, conn, fold=True, columns=None):
             print_insert_sql(header, res, get_tab_name_from_sql(sql))
         elif format == 'json':
             print_json(header, res)
+        elif format == 'html':
+            print_html(header, res)
         else:
             print_result_set(header, res, columns, fold)
     else:
@@ -775,7 +801,7 @@ def parse_args(args):
                 disable_color()
                 format = 'csv'
                 fold = False
-            elif option == 'sql' and p in ('json','sql'):
+            elif option == 'sql' and p in ('json', 'sql', 'html'):
                 disable_color()
                 format = p
                 fold = False
@@ -800,7 +826,7 @@ sql         <sql> [false] [raw] [human] [format] [column index]
             [false], disable fold.
             [raw], disable all color.
             [human], print timestamp in human readable, the premise is that the field contains "time".
-            [format], Print format: csv, table, json and sql, the default is table.
+            [format], Print format: csv, table, html, json and sql, the default is table.
             [column index], print specific columns, example: "0,1,2" or "0-2".
 set         <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
 lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
