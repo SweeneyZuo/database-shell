@@ -11,7 +11,7 @@ import sys
 import time
 from datetime import datetime
 from enum import Enum
-
+import base64
 import pymssql
 
 
@@ -186,7 +186,9 @@ def show_history(fold):
     try:
         table_head = ['time', 'option', 'value', 'stat']
         res = [list(map(lambda cell: cell.replace("\n", ""), line.split('|'))) for line in read_history()]
-        print_result_set(table_head, res, [i for i in range(len(table_head))], fold)
+        colums = [i for i in range(len(table_head))]
+        header, res = before_print(table_head, res, colums, fold)
+        print_table(table_head, res, colums)
         write_history('history', '', Stat.OK)
     except BaseException as e:
         write_history('history', '', Stat.ERROR)
@@ -327,16 +329,12 @@ def print_row_format(row, head_length,
                 return False
         return False
 
-    end_str = ',' if format == 'csv' else ' | '
+    end_str = ' | '
     for index, e in enumerate(row):
         e_str = 'NULL' if e is None else str(e)
-        space_num = 0
-        if format == 'table':
-            space_num = abs(chinese_length_str(e_str) - head_length[index])
-        if index == 0 and format == 'table':
+        space_num = abs(chinese_length_str(e_str) - head_length[index])
+        if index == 0:
             print('| ', end='')
-        if format == 'csv' and index == len(row) - 1:
-            end_str = ''
         if isdigit(e):
             # 数字采用右对齐
             print_by_align(e_str, space_num, align_type=digit_align_type, color=color, end_str=end_str)
@@ -460,13 +458,28 @@ def print_html(header, res):
 def print_xml(header, res):
     global human
     end = '\n' if human else ""
+    intend = " " * 4 if human else ""
     for row in res:
+        print("<RECORD>", end=end)
         for h, e in zip(header, row):
             if e is None:
-                print("<{}/>".format(h), end=end)
+                print("{}<{}/>".format(intend, h), end=end)
             else:
-                print("<{}>{}</{}>".format(h, e, h), end=end)
-        print()
+                print("{}<{}>{}</{}>".format(intend, h, e, h), end=end)
+        print("</RECORD>")
+
+
+def print_csv(header, res):
+    res.insert(0, header)
+    for row in res:
+        new_row = []
+        for data in row:
+            print_data = str(data)
+            if ',' in print_data or '\n' in print_data or '\r' in print_data:
+                print_data = print_data.replace('"', '""')
+            new_row.append(print_data)
+        print(','.join(new_row))
+
 
 def run_sql(sql: str, conn, fold=True, columns=None):
     sql = sql.strip()
@@ -475,6 +488,7 @@ def run_sql(sql: str, conn, fold=True, columns=None):
         if not res:
             return
         header = get_table_head_from_description(description)
+        header, res = before_print(header, res, columns, fold)
         if format == 'sql':
             print_insert_sql(header, res, get_tab_name_from_sql(sql))
         elif format == 'json':
@@ -483,10 +497,30 @@ def run_sql(sql: str, conn, fold=True, columns=None):
             print_html(header, res)
         elif format == 'xml':
             print_xml(header, res)
+        elif format == 'csv':
+            print_csv(header, res)
         else:
-            print_result_set(header, res, columns, fold)
+            print_table(header, res, columns)
     else:
         run_no_sql(sql, conn, fold, columns)
+
+
+def deal_bin(res):
+    for row in res:
+        for index, e in enumerate(row):
+            if isinstance(e, bytearray) or isinstance(e, bytes):
+                row[index] = str(base64.standard_b64encode(e),'utf8')
+
+
+def before_print(header, res, columns, fold=True):
+    res.insert(0, header)
+    res = [[line[i] for i in columns] for line in res] if columns else res
+    res = [list(row) for row in res]
+    deal_bin(res)
+    res = deal_human(res) if human else res
+    res = fold_res(res) if fold else res
+    header = res.pop(0)
+    return header, res
 
 
 def run_one_sql(sql: str, fold=True, columns=None):
@@ -497,16 +531,13 @@ def run_one_sql(sql: str, fold=True, columns=None):
     conn.close()
 
 
-def select_columns(res, columns):
-    return [[line[i] for i in columns] for line in res]
-
-
 def run_no_sql(no_sql, conn, fold=True, columns=None):
     no_sql = no_sql.strip()
     rows, description, res = ExecNonQuery(no_sql, conn)
     res = list(res) if res else res
     if description and res and len(description) > 0:
-        print_result_set(get_table_head_from_description(description), res, columns, fold)
+        header, res = before_print(get_table_head_from_description(description), res, columns, fold)
+        print_table(header, res, columns)
     if rows and format == 'table':
         print(INFO_COLOR.wrap('Effect rows:{}'.format(rows)))
 
@@ -574,38 +605,28 @@ def print_insert_sql(header, res, tab_name):
     return
 
 
-def print_result_set(header, res, columns, fold=True):
+def print_table(header, res, columns):
     # 表头加上index
     header = ['{}({})'.format(str(i), str(index)) for index, i in
               enumerate(header)] if not columns and format == 'table' else list(header)
-    res = list(res) if res else []
     res.insert(0, header)
-    res = select_columns(res, columns) if columns else res
-    res = deal_human(res) if human else res
-    res = fold_res(res) if fold else res
-    res = deal_csv(res) if format == 'csv' else res
     chinese_head_length = get_fields_length(res, chinese_length_str)
     max_row_length = sum(chinese_head_length)
     max = 1 + max_row_length + 3 * len(chinese_head_length)
     header = res.pop(0)
     space_list_down = ['-' * i for i in chinese_head_length]
-    if format == 'table':
-        print(INFO_COLOR.wrap('Result Sets:'))
-        print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+    print(INFO_COLOR.wrap('Result Sets:'))
+    print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     for index, r in enumerate(res):
         if index == 0:
-            if format == 'csv':
-                print("\ufeff", end='')
             print_row_format(header, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
                              color=TABLE_HEAD_COLOR)
-            if format == 'table':
-                print_row_format(space_list_down, chinese_head_length, color=Color.NO_COLOR)
+            print_row_format(space_list_down, chinese_head_length, color=Color.NO_COLOR)
         print_row_format(r, chinese_head_length, other_align_type=Align.ALIGN_LEFT, color=DATA_COLOR)
-        if format == 'table' and max_row_length > SHOW_BOTTOM_THRESHOLD:
+        if max_row_length > SHOW_BOTTOM_THRESHOLD:
             print('{}'.format('*' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
-    if format == 'table':
-        print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
-        print(INFO_COLOR.wrap('Total Records: {}'.format(len(res))))
+    print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+    print(INFO_COLOR.wrap('Total Records: {}'.format(len(res))))
 
 
 def print_info():
@@ -905,7 +926,8 @@ def show_conf():
             new_row.append(conf)
             new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
-    print_result_set(head, print_content, list(range(len(head))), False)
+    header, res = before_print(head, print_content, list(range(len(head))), fold=False)
+    print_table(header, res, list(range(len(head))))
     write_history('conf', '', Stat.OK)
 
 
