@@ -489,7 +489,7 @@ def print_csv(header, res):
     for row in res:
         new_row = []
         for data in row:
-            print_data = str(data)
+            print_data = "" if data is None else str(data)
             if ',' in print_data or '\n' in print_data or '\r' in print_data:
                 print_data = print_data.replace('"', '""')
             new_row.append(print_data)
