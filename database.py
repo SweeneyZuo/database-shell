@@ -87,7 +87,7 @@ class Stat(Enum):
 
 FOLD_LIMIT = 50
 FOLD_REPLACE_STR = "..."
-ROW_MAX_WIDTH = 165
+ROW_MAX_WIDTH = 234  # 165
 SHOW_BOTTOM_THRESHOLD = 150
 DATA_COLOR = Color.NO_COLOR
 TABLE_HEAD_COLOR = Color.RED
@@ -382,19 +382,58 @@ def desc_table(tab_name, fold, columns):
     def print_description():
         sql = 'desc {}'.format(tab_name)
         if conf['servertype'] == 'sqlserver':
-            sql = 'sp_columns {}'.format(tab_name)
+            sql = "select TABLE_NAME,COLUMN_NAME,DATA_TYPE,IS_NULLABLE,COLUMN_DEFAULT,CHARACTER_MAXIMUM_LENGTH," \
+                  "NUMERIC_PRECISION,NUMERIC_PRECISION_RADIX,NUMERIC_SCALE " \
+                  "from information_schema.columns where table_name = '{}'".format(tab_name)
         run_no_sql(sql, conn, fold, columns)
 
-    def print_create_table():
+    def print_create_table_mysql():
         sql = 'show create table {}'.format(tab_name)
-        if conf['servertype'] == 'sqlserver':
-            # TODO
-            sql = ''
         effect_rows, description, res = ExecNonQuery(sql, conn)
         header, res = before_print(get_table_head_from_description(description), res, [1], fold=False)
         print(res[0][0])
+
+    def print_create_table_sqlserver():
+        sql = "select * from information_schema.columns where table_name = '{}'".format(tab_name)
+        sql2 = "sp_columns {}".format(tab_name)
+        effect_rows, description, res = ExecNonQuery(sql, conn)
+        effect_rows2, description2, res2 = ExecNonQuery(sql2, conn)
+        header, res = before_print(get_table_head_from_description(description), res, None, fold=False)
+        header2, res2 = before_print(get_table_head_from_description(description2), res2, None, fold=False)
+        print("CREATE TABLE [{}].[{}].[{}] (".format(res[0][0],res[0][1],res[0][2]))
+        for index, (row, row2) in enumerate(zip(res, res2)):
+            colum_name = row[3]
+            data_type = row[7] if row2[5] in ('ntext',) else row2[5]
+            print("  [{}] {}".format(colum_name, data_type), end="")
+            if row[8] is not None and data_type not in ('text',):
+                print("({})".format('max' if row[8] == -1 else row[8]), end="")
+            elif data_type in ('decimal','numeric'):
+                print("({},{})".format(row[11], row[12]), end="")
+            # elif ExecNonQuery("SELECT COLUMNPROPERTY(OBJECT_ID('{}'),'{}','IsIdentity')".format(tab_name, colum_name),
+            #                   conn)[2][0][0] == 1:
+            elif data_type.endswith("identity"):
+                ident_seed = ExecNonQuery("SELECT IDENT_SEED ('{}')".format(tab_name), conn)[2][0][0]
+                ident_incr = ExecNonQuery("SELECT IDENT_INCR('{}')".format(tab_name), conn)[2][0][0]
+                print("({},{})".format(ident_seed, ident_incr), end="")
+            if row2[12] is not None:
+                print(" DEFAULT {}".format(row2[12]), end="")
+            if row[19] is not None:
+                print(" COLLATE {}".format(row[19]), end="")
+            if row[6] == 'YES':
+                print(" NULL", end="")
+            if row[6] == 'NO':
+                print(" NOT NULL", end="")
+            if index == len(res) - 1:
+                print("")
+            else:
+                print(",")
+        print(")")
+
     if format == 'sql':
-        print_create_table()
+        if conf['servertype'] == 'mysql':
+            print_create_table_mysql()
+        elif conf['servertype'] == 'sqlserver':
+            print_create_table_sqlserver()
     else:
         print_description()
     conn.close()
