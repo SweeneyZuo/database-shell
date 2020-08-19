@@ -385,7 +385,7 @@ def desc_table(tab_name, fold, columns):
             sql = "select TABLE_NAME,COLUMN_NAME,DATA_TYPE,IS_NULLABLE,COLUMN_DEFAULT,CHARACTER_MAXIMUM_LENGTH," \
                   "NUMERIC_PRECISION,NUMERIC_PRECISION_RADIX,NUMERIC_SCALE " \
                   "from information_schema.columns where table_name = '{}'".format(tab_name)
-        run_no_sql(sql, conn, fold, columns)
+        run_sql(sql, conn, fold, columns)
 
     def print_create_table_mysql():
         sql = 'show create table {}'.format(tab_name)
@@ -400,14 +400,14 @@ def desc_table(tab_name, fold, columns):
         effect_rows2, description2, res2 = ExecNonQuery(sql2, conn)
         header, res = before_print(get_table_head_from_description(description), res, None, fold=False)
         header2, res2 = before_print(get_table_head_from_description(description2), res2, None, fold=False)
-        print("CREATE TABLE [{}].[{}].[{}] (".format(res[0][0],res[0][1],res[0][2]))
+        print("CREATE TABLE [{}].[{}].[{}] (".format(res[0][0], res[0][1], res[0][2]))
         for index, (row, row2) in enumerate(zip(res, res2)):
             colum_name = row[3]
             data_type = row[7] if row2[5] in ('ntext',) else row2[5]
             print("  [{}] {}".format(colum_name, data_type), end="")
             if row[8] is not None and data_type not in ('text',):
                 print("({})".format('max' if row[8] == -1 else row[8]), end="")
-            elif data_type in ('decimal','numeric'):
+            elif data_type in ('decimal', 'numeric'):
                 print("({},{})".format(row[11], row[12]), end="")
             # elif ExecNonQuery("SELECT COLUMNPROPERTY(OBJECT_ID('{}'),'{}','IsIdentity')".format(tab_name, colum_name),
             #                   conn)[2][0][0] == 1:
@@ -541,20 +541,7 @@ def run_sql(sql: str, conn, fold=True, columns=None):
         description, res = ExecQuery(sql, conn)
         if not res:
             return
-        header = get_table_head_from_description(description)
-        header, res = before_print(header, res, columns, fold)
-        if format == 'sql':
-            print_insert_sql(header, res, get_tab_name_from_sql(sql))
-        elif format == 'json':
-            print_json(header, res)
-        elif format == 'html':
-            print_html(header, res)
-        elif format == 'xml':
-            print_xml(header, res)
-        elif format == 'csv':
-            print_csv(header, res)
-        else:
-            print_table(header, res, columns)
+        print_result_set(get_table_head_from_description(description), res, columns, fold, sql)
     else:
         run_no_sql(sql, conn, fold, columns)
 
@@ -586,13 +573,28 @@ def run_one_sql(sql: str, fold=True, columns=None):
     conn.close()
 
 
+def print_result_set(header, res, columns, fold, sql):
+    header, res = before_print(header, res, columns, fold)
+    if format == 'sql':
+        print_insert_sql(header, res, get_tab_name_from_sql(sql))
+    elif format == 'json':
+        print_json(header, res)
+    elif format == 'html':
+        print_html(header, res)
+    elif format == 'xml':
+        print_xml(header, res)
+    elif format == 'csv':
+        print_csv(header, res)
+    else:
+        print_table(header, res, columns)
+
+
 def run_no_sql(no_sql, conn, fold=True, columns=None):
     no_sql = no_sql.strip()
     effect_rows, description, res = ExecNonQuery(no_sql, conn)
     res = list(res) if res else res
     if description and res and len(description) > 0:
-        header, res = before_print(get_table_head_from_description(description), res, columns, fold)
-        print_table(header, res, columns)
+        print_result_set(get_table_head_from_description(description), res, columns, fold, no_sql)
     if effect_rows and format == 'table':
         print(INFO_COLOR.wrap('Effect rows:{}'.format(effect_rows)))
 
@@ -886,8 +888,7 @@ def parse_args(args):
                         else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
             elif p == 'raw':
                 disable_color()
-            elif (option == 'desc' and p == 'sql') or \
-                    (option == 'sql' and p in ('json', 'sql', 'html', 'xml', 'csv')):
+            elif option in ('sql', 'desc') and p in ('json', 'sql', 'html', 'xml', 'csv'):
                 disable_color()
                 format = p
                 fold = False
