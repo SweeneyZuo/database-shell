@@ -382,7 +382,7 @@ def desc_table(tab_name, fold, columns):
     def print_description():
         sql = 'desc {}'.format(tab_name)
         if conf['servertype'] == 'sqlserver':
-            sql = "select TABLE_NAME,COLUMN_NAME,DATA_TYPE,IS_NULLABLE,COLUMN_DEFAULT,CHARACTER_MAXIMUM_LENGTH," \
+            sql = "select COLUMN_NAME,DATA_TYPE,IS_NULLABLE,COLUMN_DEFAULT,CHARACTER_MAXIMUM_LENGTH," \
                   "NUMERIC_PRECISION,NUMERIC_PRECISION_RADIX,NUMERIC_SCALE " \
                   "from information_schema.columns where table_name = '{}'".format(tab_name)
         run_sql(sql, conn, fold, columns)
@@ -408,7 +408,7 @@ def desc_table(tab_name, fold, columns):
             if row[8] is not None and data_type not in ('text',):
                 print("({})".format('max' if row[8] == -1 else row[8]), end="")
             elif data_type in ('decimal', 'numeric'):
-                print("({},{})".format(row[11], row[12]), end="")
+                print("({},{})".format(row[10], row[12]), end="")
             # elif ExecNonQuery("SELECT COLUMNPROPERTY(OBJECT_ID('{}'),'{}','IsIdentity')".format(tab_name, colum_name),
             #                   conn)[2][0][0] == 1:
             elif data_type.endswith("identity"):
@@ -681,7 +681,7 @@ def print_table(header, res, columns):
             print_row_format(space_list_down, chinese_head_length, color=Color.NO_COLOR)
         print_row_format(r, chinese_head_length, other_align_type=Align.ALIGN_LEFT, color=DATA_COLOR)
         if max_row_length > SHOW_BOTTOM_THRESHOLD:
-            print('{}'.format('*' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+            print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     print(INFO_COLOR.wrap('Total Records: {}'.format(len(res))))
 
@@ -947,6 +947,7 @@ def load(path):
                 for sql in sql_file.readlines():
                     t_sql = sql.lower()
                     if t_sql.startswith('insert') \
+                            or t_sql.startswith('create') \
                             or t_sql.startswith('update') \
                             or t_sql.startswith('select') \
                             or t_sql.startswith('alter') \
