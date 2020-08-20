@@ -293,7 +293,7 @@ def chinese_length_str(obj):
     str_obj = 'NULL' if obj is None else str(obj)
     color_len = len(FOLD_COLOR.wrap('')) if str_obj.endswith(fold_color_str) else 0
     for char in str_obj:
-        l = l + 2 if '\u4e00' <= char <= '\u9fff' else l + 1
+        l = l + 2 if ('\u4e00' <= char <= '\u9fff' ) or ('\uFF01' <= char <= '\uFF5E' ) else l + 1
     return l - color_len
 
 
@@ -523,16 +523,30 @@ def print_xml(header, res):
         print("</RECORD>")
 
 
-def print_csv(header, res):
+def print_csv(header, res, split_char=','):
     res.insert(0, header)
     for row in res:
         new_row = []
         for data in row:
             print_data = "" if data is None else str(data)
-            if ',' in print_data or '\n' in print_data or '\r' in print_data:
+            if split_char in print_data or '\n' in print_data or '\r' in print_data:
                 print_data = print_data.replace('"', '""')
             new_row.append(print_data)
-        print(','.join(new_row))
+        print(split_char.join(new_row))
+
+
+def print_markdown(header, res):
+    res.insert(0, header)
+    for row in res:
+        new_row = []
+        for data in row:
+            print_data = "" if data is None else str(data)
+            print_data = print_data.replace('\\', '\\\\').replace('`', '\`') \
+                .replace('*', '\*').replace('_', '\_').replace('{', '\{') \
+                .replace('<', '\<').replace('|', '&#124')
+            # TODO
+            new_row.append(print_data)
+        print('|'.join(new_row))
 
 
 def run_sql(sql: str, conn, fold=True, columns=None):
@@ -585,6 +599,8 @@ def print_result_set(header, res, columns, fold, sql):
         print_xml(header, res)
     elif format == 'csv':
         print_csv(header, res)
+    elif format == 'tsv':
+        print_csv(header, res, '\t')
     else:
         print_table(header, res, columns)
 
@@ -936,6 +952,25 @@ def shell():
 
 
 def load(path):
+    def exe_sql(cur, sql):
+        try:
+            if sql == '':
+                return 0, 0
+            effect_rows = cur.execute(sql)
+            description = cur.description
+            res = None
+            try:
+                res = cur.fetchall()
+            except:
+                print(WARN_COLOR.wrap('effect_rows:{}'.format(effect_rows)))
+            if res is not None:
+                header, res = before_print(get_table_head_from_description(description), res, None, False)
+                print_result_set(header, res, None, False, sql)
+            return 1, 0
+        except BaseException as e:
+            print("sql:{}, error:{}".format(ERROR_COLOR.wrap(sql), ERROR_COLOR.wrap(e)))
+            return 0, 1
+
     try:
         if os.path.exists(path):
             conn, config = get_connection_v2()
@@ -943,21 +978,40 @@ def load(path):
                 return
             cur = conn.cursor()
             success_num, fail_num = 0, 0
+
             with open(path, mode='r', encoding='UTF8') as sql_file:
-                for sql in sql_file.readlines():
-                    t_sql = sql.lower()
-                    if t_sql.startswith('insert') \
+                sql = ''
+                for line in sql_file.readlines():
+                    t_sql = line.strip().lower()
+                    if len(t_sql) == 0 \
+                            or t_sql.startswith('--') \
+                            or t_sql.startswith('#'):
+                        continue
+                    elif t_sql.startswith('insert') \
                             or t_sql.startswith('create') \
                             or t_sql.startswith('update') \
                             or t_sql.startswith('select') \
+                            or t_sql.startswith('delete') \
                             or t_sql.startswith('alter') \
-                            or t_sql.startswith('set'):
-                        try:
-                            cur.execute(sql)
-                            success_num += 1
-                        except BaseException as e:
-                            fail_num += 1
-                            print(ERROR_COLOR.wrap(e))
+                            or t_sql.startswith('set') \
+                            or t_sql.startswith('drop') \
+                            or t_sql.startswith('go') \
+                            or t_sql.startswith('use')\
+                            or t_sql.startswith('if')\
+                            or t_sql.startswith('with'):
+                        if sql == '':
+                            sql = "{}{}".format(sql, line)
+                            continue
+                        success, fail = exe_sql(cur, sql)
+                        success_num += success
+                        fail_num += fail
+                        sql = line
+                    else:
+                        sql = "{}{}".format(sql, line)
+                if sql != '':
+                    success, fail = exe_sql(cur, sql)
+                    success_num += success
+                    fail_num += fail
             conn.commit()
             conn.close()
             print(INFO_COLOR.wrap('load ok. {} successfully executed, {} failed.'.format(success_num, fail_num)))
