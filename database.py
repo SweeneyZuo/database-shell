@@ -531,6 +531,7 @@ def print_csv(header, res, split_char=','):
             print_data = "" if data is None else str(data)
             if split_char in print_data or '\n' in print_data or '\r' in print_data:
                 print_data = print_data.replace('"', '""')
+                print_data = '"{}"'.format(print_data)
             new_row.append(print_data)
         print(split_char.join(new_row))
 
