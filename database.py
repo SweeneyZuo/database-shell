@@ -222,6 +222,10 @@ def get_connection_v2():
 
 
 def get_tab_name_from_sql(sql: str):
+    """
+     提取sql中的表名，sql语句不能有嵌套结构。
+    """
+
     def deal_tab_name(tab_name: str):
         if '.' in tab_name:
             tab_name = tab_name.split('.')[-1]
@@ -293,7 +297,7 @@ def chinese_length_str(obj):
     str_obj = 'NULL' if obj is None else str(obj)
     color_len = len(FOLD_COLOR.wrap('')) if str_obj.endswith(fold_color_str) else 0
     for char in str_obj:
-        l = l + 2 if ('\u4e00' <= char <= '\u9fff' ) or ('\uFF01' <= char <= '\uFF5E' ) else l + 1
+        l = l + 2 if ('\u4e00' <= char <= '\u9fff') or ('\uFF01' <= char <= '\uFF5E') else l + 1
     return l - color_len
 
 
@@ -964,7 +968,7 @@ def load(path):
                 res = cur.fetchall()
             except:
                 print(WARN_COLOR.wrap('effect_rows:{}'.format(effect_rows)))
-            if res is not None:
+            if None not in (res, description):
                 header, res = before_print(get_table_head_from_description(description), res, None, False)
                 print_result_set(header, res, None, False, sql)
             return 1, 0
@@ -997,8 +1001,8 @@ def load(path):
                             or t_sql.startswith('set') \
                             or t_sql.startswith('drop') \
                             or t_sql.startswith('go') \
-                            or t_sql.startswith('use')\
-                            or t_sql.startswith('if')\
+                            or t_sql.startswith('use') \
+                            or t_sql.startswith('if') \
                             or t_sql.startswith('with'):
                         if sql == '':
                             sql = "{}{}".format(sql, line)
