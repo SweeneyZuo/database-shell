@@ -13,6 +13,7 @@ from datetime import datetime
 from enum import Enum
 import base64
 import pymssql
+import html
 
 
 class DatabaseType(Enum):
@@ -507,10 +508,73 @@ def print_html(header, res):
             if index == 0:
                 print("<tr>", end="")
             e = "" if e is None else e
+            e = html.escape(e) if isinstance(e, str) else e
             print("<td>{}</td>".format(e), end="")
             if index == l:
                 print("</tr>")
     print("</table>\n</body>\n</html>")
+
+
+def print_html2(header, res):
+    h = '<html>\n<head>\n<style type="text/css">\n#customers\n  ' \
+        '{\n  font-family:"Trebuchet MS", Arial, Helvetica, sans-serif;\n  ' \
+        'width:100%;\n  border-collapse:collapse;\n  }\n\n#customers td, #customers th \n  ' \
+        '{\n  font-size:1em;\n  border:1px solid #98bf21;\n  padding:3px 7px 2px 7px;\n  }\n ' \
+        '\n#customers th \n  {\n  font-size:1.1em;\n  text-align:left;\n  padding-top:5px;\n  ' \
+        'padding-bottom:4px;\n  background-color:#A7C942;\n  color:#ffffff;\n  }\n \n#customers ' \
+        'tr.alt td \n  {\n  color:#000000;\n  background-color:#EAF2D3;\n  }\n</style>\n</head>\n ' \
+        '\n<body>\n<table id="customers">'
+    print(h)
+    l = len(header) - 1
+    for index, head in enumerate(header):
+        if index == 0:
+            print("<tr>", end="")
+        head = "" if head is None else head
+        print("<th>{}</th>".format(head), end="")
+        if index == l:
+            print("</tr>")
+    for row_num, row in enumerate(res):
+        for index, e in enumerate(row):
+            if index == 0:
+                print("<tr>", end="") if row_num % 2 == 0 else print('<tr class="alt">', end="")
+            e = "" if e is None else e
+            e = html.escape(e) if isinstance(e, str) else e
+            print("<td>{}</td>".format(e), end="")
+            if index == l:
+                print("</tr>")
+    print("</table>\n</body>\n</html>")
+
+
+def print_html3(header, res):
+    h = '<style type="text/css">\ntable.hovertable {\n    ' \
+        'font-family: verdana,arial,sans-serif;\n    font-size:11px;\n    ' \
+        'color:#333333;\n    border-width: 1px;\n    border-color: #999999;\n    ' \
+        'border-collapse: collapse;\n}\ntable.hovertable th {\n    ' \
+        'background-color:#c3dde0;\n    border-width: 1px;\n    ' \
+        'padding: 8px;\n    border-style: solid;\n    border-color: #a9c6c9;\n}\n' \
+        'table.hovertable tr {\n    background-color:#d4e3e5;\n}\ntable.hovertable td ' \
+        '{\n    border-width: 1px;\n    padding: 8px;\n    border-style: solid;\n    ' \
+        'border-color: #a9c6c9;\n}\n</style>\n\n<table class="hovertable">'
+    print(h)
+    l = len(header) - 1
+    for index, head in enumerate(header):
+        if index == 0:
+            print("<tr>", end="")
+        head = "" if head is None else head
+        print("<th>{}</th>".format(head), end="")
+        if index == l:
+            print("</tr>")
+    for row in res:
+        for index, e in enumerate(row):
+            if index == 0:
+                print(
+                    '<tr onmouseover="this.style.backgroundColor=\'#ffff66\';" onmouseout="this.style.backgroundColor=\'#d4e3e5\';">')
+            e = "" if e is None else e
+            e = html.escape(e) if isinstance(e, str) else e
+            print("<td>{}</td>".format(e), end="")
+            if index == l:
+                print("</tr>")
+    print("</table>")
 
 
 def print_xml(header, res):
@@ -541,17 +605,19 @@ def print_csv(header, res, split_char=','):
 
 
 def print_markdown(header, res):
-    res.insert(0, header)
+    print('|', end='')
+    l = len(header)
+    for head in header:
+        head = "" if head is None else str(head)
+        print(html.escape(head), end="|")
+    print('\n|', end='')
+    for i in range(l):
+        print(':{}:'.format('-' * 10), end='|')
     for row in res:
-        new_row = []
-        for data in row:
-            print_data = "" if data is None else str(data)
-            print_data = print_data.replace('\\', '\\\\').replace('`', '\`') \
-                .replace('*', '\*').replace('_', '\_').replace('{', '\{') \
-                .replace('<', '\<').replace('|', '&#124')
-            # TODO
-            new_row.append(print_data)
-        print('|'.join(new_row))
+        print('\n|', end='')
+        for e in row:
+            e = "" if e is None else str(e)
+            print(html.escape(e), end="|")
 
 
 def run_sql(sql: str, conn, fold=True, columns=None):
@@ -600,6 +666,12 @@ def print_result_set(header, res, columns, fold, sql):
         print_json(header, res)
     elif format == 'html':
         print_html(header, res)
+    elif format == 'html2':
+        print_html2(header, res)
+    elif format == 'html3':
+        print_html3(header, res)
+    elif format == 'markdown':
+        print_markdown(header, res)
     elif format == 'xml':
         print_xml(header, res)
     elif format == 'csv':
@@ -909,7 +981,8 @@ def parse_args(args):
                         else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
             elif p == 'raw':
                 disable_color()
-            elif option in ('sql', 'desc') and p in ('json', 'sql', 'html', 'xml', 'csv'):
+            elif option in ('sql', 'desc') and \
+                    p in ('json', 'sql', 'html', 'html2', 'html3', 'markdown', 'xml', 'csv'):
                 disable_color()
                 format = p
                 fold = False
