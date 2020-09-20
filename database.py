@@ -156,12 +156,12 @@ def get_script_name():
 
 
 def write_history(option, content, stat):
-    filename = '.{}_db.history'.format(datetime.now().date())
+    filename = 'hist/.{}_db.history'.format(datetime.now().date())
     proc_home = get_proc_home()
     file = os.path.join(proc_home, filename)
     time = datetime.now().strftime('%H:%M:%S')
     data = '{}|{}|{}|{}\n'.format(time, option, content, stat.value)
-    with open(os.path.join(proc_home, '.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
+    with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='a+', encoding='UTF-8') as history_file:
             history_file.write(data)
@@ -169,12 +169,12 @@ def write_history(option, content, stat):
 
 
 def read_history():
-    filename = '.{}_db.history'.format(datetime.now().date())
+    filename = 'hist/.{}_db.history'.format(datetime.now().date())
     proc_home = get_proc_home()
     file = os.path.join(proc_home, filename)
     history_list = []
     if os.path.exists(file):
-        with open(os.path.join(proc_home, '.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
+        with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             with open(file, mode='r', encoding='UTF-8') as history_file:
                 history_list = history_file.readlines()
@@ -490,11 +490,14 @@ def print_json(header, res):
             print(json.dumps(dict(zip(header, row))))
 
 
+def print_html_head(html_head_file_name):
+    with open(os.path.join(get_proc_home(), 'config/html/{}'.format(html_head_file_name))) as html_head:
+        for line in html_head.readlines():
+            print(line, end='')
+
+
 def print_html(header, res):
-    h = "<head>\n<style>\ntable{\nborder-collapse: collapse;\nwidth: 100%;\n}\nth, td{\ntext-align: left;\npadding: " \
-        "8px;\n}\ntr:nth-child(even){\nbackground-color: #fafafa;\n}\nth{\nbackground-color: #7799AA;\ncolor: " \
-        "white;\n}\n</style>\n</head> "
-    print("<html>\n{}\n<body>\n<table>".format(h))
+    print_html_head('html1.head')
     l = len(header) - 1
     for index, head in enumerate(header):
         if index == 0:
@@ -516,15 +519,7 @@ def print_html(header, res):
 
 
 def print_html2(header, res):
-    h = '<html>\n<head>\n<style type="text/css">\n#customers\n  ' \
-        '{\n  font-family:"Trebuchet MS", Arial, Helvetica, sans-serif;\n  ' \
-        'width:100%;\n  border-collapse:collapse;\n  }\n\n#customers td, #customers th \n  ' \
-        '{\n  font-size:1em;\n  border:1px solid #98bf21;\n  padding:3px 7px 2px 7px;\n  }\n ' \
-        '\n#customers th \n  {\n  font-size:1.1em;\n  text-align:left;\n  padding-top:5px;\n  ' \
-        'padding-bottom:4px;\n  background-color:#A7C942;\n  color:#ffffff;\n  }\n \n#customers ' \
-        'tr.alt td \n  {\n  color:#000000;\n  background-color:#EAF2D3;\n  }\n</style>\n</head>\n ' \
-        '\n<body>\n<table id="customers">'
-    print(h)
+    print_html_head('html2.head')
     l = len(header) - 1
     for index, head in enumerate(header):
         if index == 0:
@@ -546,16 +541,7 @@ def print_html2(header, res):
 
 
 def print_html3(header, res):
-    h = '<style type="text/css">\ntable.hovertable {\n    ' \
-        'font-family: verdana,arial,sans-serif;\n    font-size:11px;\n    ' \
-        'color:#333333;\n    border-width: 1px;\n    border-color: #999999;\n    ' \
-        'border-collapse: collapse;\n}\ntable.hovertable th {\n    ' \
-        'background-color:#c3dde0;\n    border-width: 1px;\n    ' \
-        'padding: 8px;\n    border-style: solid;\n    border-color: #a9c6c9;\n}\n' \
-        'table.hovertable tr {\n    background-color:#d4e3e5;\n}\ntable.hovertable td ' \
-        '{\n    border-width: 1px;\n    padding: 8px;\n    border-style: solid;\n    ' \
-        'border-color: #a9c6c9;\n}\n</style>\n\n<table class="hovertable">'
-    print(h)
+    print_html_head('html3.head')
     l = len(header) - 1
     for index, head in enumerate(header):
         if index == 0:
@@ -575,6 +561,29 @@ def print_html3(header, res):
             if index == l:
                 print("</tr>")
     print("</table>")
+
+
+def print_html4(header, res):
+    print_html_head('html4.head')
+    l = len(header) - 1
+    for index, head in enumerate(header):
+        if index == 0:
+            print("<thead><tr>", end="")
+        head = "" if head is None else head
+        print("<th>{}</th>".format(head), end="")
+        if index == l:
+            print("</tr></thead>")
+    print('<tbody>')
+    for row in res:
+        for index, e in enumerate(row):
+            if index == 0:
+                print('<tr>', end='')
+            e = "" if e is None else e
+            e = html.escape(e) if isinstance(e, str) else e
+            print("<td>{}</td>".format(e), end="")
+            if index == l:
+                print("</tr>")
+    print("</tbody>\n</table>")
 
 
 def print_xml(header, res):
@@ -670,14 +679,14 @@ def print_result_set(header, res, columns, fold, sql):
         print_html2(header, res)
     elif format == 'html3':
         print_html3(header, res)
+    elif format == 'html4':
+        print_html4(header, res)
     elif format == 'markdown':
         print_markdown(header, res)
     elif format == 'xml':
         print_xml(header, res)
     elif format == 'csv':
         print_csv(header, res)
-    elif format == 'tsv':
-        print_csv(header, res, '\t')
     else:
         print_table(header, res, columns)
 
@@ -846,10 +855,10 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
 
 
 def read_info():
-    filename = '.db.info'
+    filename = 'config/.db.info'
     proc_home = get_proc_home()
     file = os.path.join(proc_home, filename)
-    with open(os.path.join(proc_home, '.db.info.lock'), mode='w+') as lock:
+    with open(os.path.join(proc_home, 'config/.db.info.lock'), mode='w+') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='r', encoding='UTF8') as info_file:
             info_obj = json.loads(''.join(info_file.readlines()))
@@ -862,12 +871,12 @@ def write_info(info):
     config_dic['env'] = ENV_TYPE.value
     config_dic['conf'] = CONF_KEY
     proc_home = get_proc_home()
-    file = os.path.join(proc_home, '.db.info')
-    with open(os.path.join(proc_home, '.db.info.lock'), mode='w+') as lock:
+    file = os.path.join(proc_home, 'config/.db.info')
+    with open(os.path.join(proc_home, 'config/.db.info.lock'), mode='w+') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='w+', encoding='UTF8') as info_file:
             info_file.write(json.dumps(config_dic, indent=2))
-        with open(os.path.join(proc_home, '.db.info'), mode='w+', encoding='UTF8') as dbconf:
+        with open(os.path.join(proc_home, 'config/.db.info'), mode='w+', encoding='UTF8') as dbconf:
             dbconf.write(json.dumps(info, indent=2))
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
@@ -875,7 +884,7 @@ def write_info(info):
 def set_info(kv):
     info_obj = {}
     try:
-        with open(os.path.join(get_proc_home(), '.db.lock'), 'w') as lock:
+        with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w') as lock:
             try:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as bioe:
@@ -897,12 +906,12 @@ def set_info(kv):
 
 
 def is_locked():
-    lock_value_file = os.path.join(get_proc_home(), '.db.lock.value')
+    lock_value_file = os.path.join(get_proc_home(), 'config/.db.lock.value')
     return os.path.exists(lock_value_file)
 
 
 def lock_value():
-    lock_value_file = os.path.join(get_proc_home(), '.db.lock.value')
+    lock_value_file = os.path.join(get_proc_home(), 'config/.db.lock.value')
     val = None
     if is_locked():
         with open(lock_value_file, 'r') as f:
@@ -911,7 +920,7 @@ def lock_value():
 
 
 def unlock(key):
-    with open(os.path.join(get_proc_home(), '.db.lock'), 'w') as lock:
+    with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w') as lock:
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as bioe:
@@ -927,7 +936,7 @@ def unlock(key):
         m = hashlib.md5()
         m.update(key.encode('UTF-8'))
         if m.hexdigest() == lock_val:
-            os.remove(os.path.join(get_proc_home(), '.db.lock.value'))
+            os.remove(os.path.join(get_proc_home(), 'config/.db.lock.value'))
             print(INFO_COLOR.wrap('db unlocked!'))
             write_history('unlock', '*' * 6, Stat.OK)
         else:
@@ -937,7 +946,7 @@ def unlock(key):
 
 
 def lock(key: str):
-    with open(os.path.join(get_proc_home(), '.db.lock'), 'w+') as lock:
+    with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w+') as lock:
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as bioe:
@@ -951,7 +960,7 @@ def lock(key: str):
         key = key if key else ""
         m = hashlib.md5()
         m.update(key.encode('UTF-8'))
-        lock_file = os.path.join(get_proc_home(), '.db.lock.value')
+        lock_file = os.path.join(get_proc_home(), 'config/.db.lock.value')
         with open(lock_file, mode='w+') as f:
             f.write(m.hexdigest())
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -982,7 +991,7 @@ def parse_args(args):
             elif p == 'raw':
                 disable_color()
             elif option in ('sql', 'desc') and \
-                    p in ('json', 'sql', 'html', 'html2', 'html3', 'markdown', 'xml', 'csv'):
+                    p in ('json', 'sql', 'html', 'html2', 'html3', 'html4','markdown', 'xml', 'csv'):
                 disable_color()
                 format = p
                 fold = False
@@ -1007,7 +1016,7 @@ sql         <sql> [false] [raw] [human] [format] [column index]
             [false], disable fold.
             [raw], disable all color.
             [human], print timestamp in human readable, the premise is that the field contains "time".
-            [format], Print format: csv, table, html, xml, json and sql, the default is table.
+            [format], Print format: csv, table, html(2/3/4), markdown, xml, json and sql, the default is table.
             [column index], print specific columns, example: "0,1,2" or "0-2".
 set         <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
 lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
