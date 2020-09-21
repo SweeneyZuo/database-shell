@@ -511,7 +511,7 @@ def print_html(header, res):
             if index == 0:
                 print("<tr>", end="")
             e = "" if e is None else e
-            e = html.escape(e) if isinstance(e, str) else e
+            e = html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
             print("<td>{}</td>".format(e), end="")
             if index == l:
                 print("</tr>")
@@ -533,7 +533,7 @@ def print_html2(header, res):
             if index == 0:
                 print("<tr>", end="") if row_num % 2 == 0 else print('<tr class="alt">', end="")
             e = "" if e is None else e
-            e = html.escape(e) if isinstance(e, str) else e
+            e = html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
             print("<td>{}</td>".format(e), end="")
             if index == l:
                 print("</tr>")
@@ -556,7 +556,7 @@ def print_html3(header, res):
                 print(
                     '<tr onmouseover="this.style.backgroundColor=\'#ffff66\';" onmouseout="this.style.backgroundColor=\'#d4e3e5\';">')
             e = "" if e is None else e
-            e = html.escape(e) if isinstance(e, str) else e
+            e = html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
             print("<td>{}</td>".format(e), end="")
             if index == l:
                 print("</tr>")
@@ -579,7 +579,7 @@ def print_html4(header, res):
             if index == 0:
                 print('<tr>', end='')
             e = "" if e is None else e
-            e = html.escape(e) if isinstance(e, str) else e
+            e = html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
             print("<td>{}</td>".format(e), end="")
             if index == l:
                 print("</tr>")
@@ -626,7 +626,7 @@ def print_markdown(header, res):
         print('\n|', end='')
         for e in row:
             e = "" if e is None else str(e)
-            print(html.escape(e), end="|")
+            print(html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>'), end="|")
 
 
 def run_sql(sql: str, conn, fold=True, columns=None):
