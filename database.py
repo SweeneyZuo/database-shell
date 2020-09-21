@@ -372,7 +372,7 @@ def show_sys_tables():
     if servertype == 'mysql':
         sql = 'SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA=\'{}\''.format(conf['database'])
     else:
-        sql = 'SELECT name FROM sys.tables'
+        sql = 'SELECT name FROM sys.tables ORDER BY name'
     run_sql(sql, conn, False, [0])
     conn.close()
 
