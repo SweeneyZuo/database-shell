@@ -2,4 +2,4 @@
 source /etc/profile
 source ~/.bashrc
 source ~/.bash_profile
-python3 /home/hadoop/zuo/database.py "$@"
+python3 /home/hadoop/zuo/database.pyc "$@"
