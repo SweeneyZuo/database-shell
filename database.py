@@ -991,7 +991,7 @@ def parse_args(args):
             elif p == 'raw':
                 disable_color()
             elif option in ('sql', 'desc') and \
-                    p in ('json', 'sql', 'html', 'html2', 'html3', 'html4','markdown', 'xml', 'csv'):
+                    p in ('json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'):
                 disable_color()
                 format = p
                 fold = False
@@ -1126,6 +1126,10 @@ def show_conf():
     write_history('conf', '', Stat.OK)
 
 
+def test():
+    print('test', end='')
+
+
 if __name__ == '__main__':
     try:
         opt, colums, fold, option_val = parse_args(sys.argv)
@@ -1153,6 +1157,8 @@ if __name__ == '__main__':
             load(option_val)
         elif opt == 'help':
             print_usage()
+        elif opt == 'test':
+            test()
         else:
             print(ERROR_COLOR.wrap("Invalid operation!!!"))
             print_usage(error_condition=True)
