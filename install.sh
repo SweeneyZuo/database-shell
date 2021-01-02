@@ -33,23 +33,26 @@ python compiledb.py
 
 proc_home=`pwd`
 
-# set command env
-echo """
-# ADD db to PATH
-export PATH=\$PATH:${proc_home}
-""" >> ~/.bashrc
-
 # create command file
 
 echo """
 #!/usr/bin/env bash
-source /etc/profile
-source ~/.bashrc
-source ~/.bash_profile
-python3 ${proc_home}/database.pyc "\$@"
+python ${proc_home}/database.pyc \"\$@\"
 """ > db
 
 chmod +x db
+
+# set command env
+username=`whoami`
+if [ ! $username = 'root' ];then
+echo """
+# ADD db to PATH
+export PATH=\$PATH:${proc_home}
+""" >> ~/.bashrc
+else
+  mv db /usr/bin
+fi
+
 # delete py files
 rm database.py compiledb.py test.py
 # delete sh files
