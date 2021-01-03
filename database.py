@@ -135,16 +135,27 @@ def show_database_info(info):
     env = info['use']['env'] if info else ''
     conf_name = info['use']['conf'] if info else ''
     conf = info['conf'][env].get(conf_name, {}) if info else {}
-    print(INFO_COLOR.wrap(
-        '[DATABASE INFO]: env={}, conf={}, serverType={}, host={}, port={}, user={}, password={}, database={}, lockStat={}.'.format(
-            env, conf_name,
-            conf.get('servertype', ''),
-            conf.get('host', ''),
-            conf.get('port', ''),
-            conf.get('user', ''),
-            conf.get('password', ''),
-            conf.get('database', ''),
-            is_locked())))
+
+    def print_start_info(table_width):
+        start_info_msg = '[DATABASE INFO]'
+        f = (int)((table_width - len(start_info_msg)) / 2)
+        b = table_width - len(start_info_msg) - f
+        print('{}{}{}'.format('#' * f, start_info_msg, '#' * b))
+
+    def print_end_info(table_width, total):
+        print('#' * table_width)
+
+    header = ['env', 'conf', 'serverType', 'host', 'port', 'user', 'password', 'database', 'lockStat']
+    print_table(header,
+                [[env, conf_name,
+                  conf.get('servertype', ''),
+                  conf.get('host', ''),
+                  conf.get('port', ''),
+                  conf.get('user', ''),
+                  conf.get('password', ''),
+                  conf.get('database', ''),
+                  is_locked()]], [i for i in range(len(header))],
+                split_char='-', start_func=print_start_info, end_func=print_end_info)
 
 
 def get_proc_home():
@@ -188,11 +199,10 @@ def show_history(fold):
         table_head = ['time', 'option', 'value', 'stat']
         res = [list(map(lambda cell: cell.replace("\n", ""), line.split('|'))) for line in read_history()]
         colums = [i for i in range(len(table_head))]
-        header, res = before_print(table_head, res, colums, fold)
-        print_table(table_head, res, colums)
-        write_history('history', '', Stat.OK)
+        print_result_set(table_head, res, colums, fold, None)
+        write_history('history', format, Stat.OK)
     except BaseException as e:
-        write_history('history', '', Stat.ERROR)
+        write_history('history', format, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
 
 
@@ -310,13 +320,10 @@ def print_by_align(data, space_num, align_type, color=Color.NO_COLOR, end_str=' 
         print('{}{}'.format(' ' * space_num, color.wrap(data)), end=end_str)
     elif align_type == Align.ALIGN_LEFT:
         print('{}{}'.format(color.wrap(data), ' ' * space_num), end=end_str)
-    elif align_type == Align.ALIGN_CENTER:
+    else:
         half_space_num = int(space_num / 2)
         left_space_num = space_num - half_space_num
         print('{}{}{}'.format(' ' * half_space_num, color.wrap(data), ' ' * left_space_num), end=end_str)
-    else:
-        print(ERROR_COLOR.wrap("no align type, align_type={}".format(align_type)))
-        sys.exit(-1)
 
 
 def print_row_format(row, head_length,
@@ -675,7 +682,7 @@ def run_one_sql(sql: str, fold=True, columns=None):
 
 def print_result_set(header, res, columns, fold, sql):
     header, res = before_print(header, res, columns, fold)
-    if format == 'sql':
+    if format == 'sql' and sql is not None:
         print_insert_sql(header, res, get_tab_name_from_sql(sql))
     elif format == 'json':
         print_json(header, res)
@@ -693,8 +700,23 @@ def print_result_set(header, res, columns, fold, sql):
         print_xml(header, res)
     elif format == 'csv':
         print_csv(header, res)
-    else:
+    elif format == 'text':
+        def empty_start_func(table_width):
+            pass
+
+        def empty_after_print_row(max_row_length, split_char, table_width):
+            pass
+
+        def empty_end_func(table_width, total):
+            pass
+
+        columns = columns if colums is not None else [i for i in range(len(header))]
+        print_table(header, res, columns, start_func=empty_start_func,
+                    after_print_row_func=empty_after_print_row, end_func=empty_end_func)
+    elif format == 'table':
         print_table(header, res, columns)
+    else:
+        print(ERROR_COLOR.wrap("Invalid print format : \"{}\"".format(format)))
 
 
 def run_no_sql(no_sql, conn, fold=True, columns=None):
@@ -770,28 +792,46 @@ def print_insert_sql(header, res, tab_name):
     return
 
 
-def print_table(header, res, columns):
+def default_print_start(table_width):
+    print(INFO_COLOR.wrap('Result Sets:'))
+
+
+def default_print_end(table_width, total):
+    print(INFO_COLOR.wrap('Total Records: {}'.format(total)))
+
+
+def default_after_print_row(max_row_length, split_char, table_width):
+    if max_row_length > SHOW_BOTTOM_THRESHOLD:
+        print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+
+
+def print_table(header, res, columns, split_char='-', start_func=default_print_start,
+                after_print_row_func=default_after_print_row, end_func=default_print_end):
     # 表头加上index
     header = ['{}({})'.format(str(i), str(index)) for index, i in
               enumerate(header)] if not columns and format == 'table' else list(header)
     res.insert(0, header)
     chinese_head_length = get_fields_length(res, chinese_length_str)
     max_row_length = sum(chinese_head_length)
-    max = 1 + max_row_length + 3 * len(chinese_head_length)
+    table_width = 1 + max_row_length + 3 * len(chinese_head_length)
     header = res.pop(0)
-    space_list_down = ['-' * i for i in chinese_head_length]
-    print(INFO_COLOR.wrap('Result Sets:'))
-    print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+    space_list_down = [split_char * i for i in chinese_head_length]
+    start_func(table_width)
+    # 打印表格的上顶线
+    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     for index, r in enumerate(res):
         if index == 0:
+            # 打印HEADER部分
             print_row_format(header, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
                              color=TABLE_HEAD_COLOR)
+            # 打印HEADER和DATA之间的分割线
             print_row_format(space_list_down, chinese_head_length, color=Color.NO_COLOR)
+        # 打印DATA部分
         print_row_format(r, chinese_head_length, other_align_type=Align.ALIGN_LEFT, color=DATA_COLOR)
-        if max_row_length > SHOW_BOTTOM_THRESHOLD:
-            print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
-    print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
-    print(INFO_COLOR.wrap('Total Records: {}'.format(len(res))))
+        after_print_row_func(max_row_length, split_char, table_width)
+    # 打印表格的下底线
+    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+    end_func(table_width, len(res))
 
 
 def print_info():
@@ -976,10 +1016,8 @@ def lock(key: str):
 
 def parse_args(args):
     option = args[1].strip().lower() if len(args) > 1 else ''
-    global format, human
-    format = 'table'
-    human = False
-    colums, fold = None, True
+    global format, human, export_type
+    colums, fold, export_type, human, format = None, True, 'all', False, 'table'
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
     if len(args) > parse_start_pos:
@@ -996,17 +1034,23 @@ def parse_args(args):
                         else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
             elif p == 'raw':
                 disable_color()
-            elif option in ('sql', 'desc') and \
-                    p in ('json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'):
+            elif option in ('sql', 'desc', 'hist', 'history') and \
+                    p in ('text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'):
                 disable_color()
                 format = p
                 fold = False
             elif option == 'export' and p in ('ddl', 'data', 'all'):
                 disable_color()
-                format = p
+                export_type = p
                 fold = False
             elif p == 'human':
                 human = True
+            elif index == 2 and option in ('sql', 'desc', 'hist', 'load', 'export', 'set', 'lock', 'unlock'):
+                # 可以接收第3个参数的操作
+                continue
+            else:
+                print(ERROR_COLOR.wrap("Invalid param : \"{}\"".format(p)))
+                sys.exit(-1)
 
     return option, colums, fold, option_val
 
@@ -1027,7 +1071,7 @@ sql         <sql> [false] [raw] [human] [format] [column index]
             [false], disable fold.
             [raw], disable all color.
             [human], print timestamp in human readable, the premise is that the field contains "time".
-            [format], Print format: csv, table, html(2/3/4), markdown, xml, json and sql, the default is table.
+            [format], Print format: text, csv, table, html(2/3/4), markdown, xml, json and sql, the default is table.
             [column index], print specific columns, example: "0,1,2" or "0-2".
 set         <key=val> set database configuration, example: "env=qa", "conf=main".
 lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
@@ -1139,28 +1183,30 @@ def show_conf():
 
 def test():
     print('test', end='')
+    write_history('test', '', Stat.OK)
 
 
 def export():
+    format = 'sql'
     conn, conf = get_connection_v2()
     if conn is None:
         return
     tab_list = exe_query(get_list_tab_sql(conf['servertype'], conf['database']), conn)[1]
     try:
-        global format
         for tab in tab_list:
-            if format in ('all', 'ddl'):
+            if export_type in ('all', 'ddl'):
                 print('--\n-- Table structure for table "{}"\n--\n'.format(tab[0]))
                 print_create_table(conf['servertype'], conn, tab[0])
                 print('\n')
-            if format in ('all', 'data'):
+            if export_type in ('all', 'data'):
                 print('--\n-- Dumping data for table "{}"\n--\n'.format(tab[0]))
                 sql = 'select * from {}'.format(tab[0])
-                t = format
-                format = 'sql'
                 run_sql(sql, conn, False)
                 print('\n')
-                format = t
+        write_history('export', export_type, Stat.OK)
+    except BaseException as e:
+        write_history('export', export_type, Stat.ERROR)
+        print(ERROR_COLOR.wrap(e))
     finally:
         conn.close()
 
@@ -1199,5 +1245,5 @@ if __name__ == '__main__':
         else:
             print(ERROR_COLOR.wrap("Invalid operation!!!"))
             print_usage(error_condition=True)
-    except BaseException as e:
+    except Exception as e:
         print(ERROR_COLOR.wrap(e))
