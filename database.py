@@ -1045,8 +1045,8 @@ def parse_args(args):
                 fold = False
             elif p == 'human':
                 human = True
-            elif index == 2 and option in ('sql', 'desc', 'hist', 'load', 'export', 'set', 'lock', 'unlock'):
-                # 可以接收第3个参数的操作
+            elif index == 2 and option in ('sql', 'desc', 'load', 'set', 'lock', 'unlock'):
+                # 第3个参数可以自定义输入的操作
                 continue
             else:
                 print(ERROR_COLOR.wrap("Invalid param : \"{}\"".format(p)))
