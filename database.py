@@ -881,6 +881,7 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
                             "Add \"{}\" conf in env={}".format(set_conf_value, read_info['use']['env'])))
                 continue
             elif conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
+                print(ERROR_COLOR.wrap("\"{}\" not supported".format(set_conf_value)))
                 continue
             elif conf_key == 'autocommit':
                 set_conf_value = set_conf_value == 'true'
@@ -935,7 +936,7 @@ def set_info(kv):
                 write_history('set', kv, Stat.ERROR)
                 return
             kv_pair = kv.split('=')
-            info_obj[kv_pair[0]] = kv_pair[1]
+            info_obj[kv_pair[0].lower()] = kv_pair[1]
             write_info(parse_info_obj(read_info(), info_obj, Opt.UPDATE))
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             write_history('set', kv, Stat.OK)
