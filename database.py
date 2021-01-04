@@ -895,8 +895,6 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
                     continue
                 set_conf_value = int(set_conf_value)
             read_info['conf'][read_info['use']['env']][read_info['use']['conf']][conf_key] = set_conf_value
-        # if CONF_KEY == DEFAULT_CONF and opt is not Opt.WRITE:
-        #     print(ERROR_COLOR.wrap("please set conf!"))
     return read_info
 
 
@@ -1014,47 +1012,6 @@ def lock(key: str):
         write_history('lock', '*' * 6, Stat.OK)
 
 
-def parse_args(args):
-    option = args[1].strip().lower() if len(args) > 1 else ''
-    global format, human, export_type
-    colums, fold, export_type, human, format = None, True, 'all', False, 'table'
-    option_val = args[2] if len(args) > 2 else ''
-    parse_start_pos = 3 if option == 'sql' else 2
-    if len(args) > parse_start_pos:
-        for index in range(parse_start_pos, len(args)):
-            p: str = args[index].strip().lower()
-            if p == 'false':
-                fold = False
-            elif p.isdigit() or ',' in p:
-                colums = list(map(lambda x: int(x), p.split(',')))
-            elif '-' in p:
-                t = p.split('-')
-                if t[0].isdigit() and t[1].isdigit():
-                    colums = [i for i in range(int(t[0]), int(t[1]) + 1)] if int(t[0]) <= int(t[1]) \
-                        else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
-            elif p == 'raw':
-                disable_color()
-            elif option in ('sql', 'desc', 'hist', 'history') and \
-                    p in ('text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'):
-                disable_color()
-                format = p
-                fold = False
-            elif option == 'export' and p in ('ddl', 'data', 'all'):
-                disable_color()
-                export_type = p
-                fold = False
-            elif p == 'human':
-                human = True
-            elif index == 2 and option in ('sql', 'desc', 'load', 'set', 'lock', 'unlock'):
-                # 第3个参数可以自定义输入的操作
-                continue
-            else:
-                print(ERROR_COLOR.wrap("Invalid param : \"{}\"".format(p)))
-                sys.exit(-1)
-
-    return option, colums, fold, option_val
-
-
 def print_usage(error_condition=False):
     print('''usage: db [options]
 
@@ -1093,6 +1050,24 @@ def shell():
     write_history('shell', '', Stat.OK)
 
 
+def is_executable(sql):
+    if sql is None:
+        return False
+    t_sql = sql.lower()
+    return t_sql.startswith('insert') \
+           or t_sql.startswith('create') \
+           or t_sql.startswith('update') \
+           or t_sql.startswith('select') \
+           or t_sql.startswith('delete') \
+           or t_sql.startswith('alter') \
+           or t_sql.startswith('set') \
+           or t_sql.startswith('drop') \
+           or t_sql.startswith('go') \
+           or t_sql.startswith('use') \
+           or t_sql.startswith('if') \
+           or t_sql.startswith('with')
+
+
 def load(path):
     def exe_sql(cur, sql):
         try:
@@ -1124,23 +1099,12 @@ def load(path):
             with open(path, mode='r', encoding='UTF8') as sql_file:
                 sql = ''
                 for line in sql_file.readlines():
-                    t_sql = line.strip().lower()
+                    t_sql = line.strip()
                     if len(t_sql) == 0 \
                             or t_sql.startswith('--') \
                             or t_sql.startswith('#'):
                         continue
-                    elif t_sql.startswith('insert') \
-                            or t_sql.startswith('create') \
-                            or t_sql.startswith('update') \
-                            or t_sql.startswith('select') \
-                            or t_sql.startswith('delete') \
-                            or t_sql.startswith('alter') \
-                            or t_sql.startswith('set') \
-                            or t_sql.startswith('drop') \
-                            or t_sql.startswith('go') \
-                            or t_sql.startswith('use') \
-                            or t_sql.startswith('if') \
-                            or t_sql.startswith('with'):
+                    elif is_executable(t_sql):
                         if sql == '':
                             sql = "{}{}".format(sql, line)
                             continue
@@ -1209,6 +1173,47 @@ def export():
         print(ERROR_COLOR.wrap(e))
     finally:
         conn.close()
+
+
+def parse_args(args):
+    option = args[1].strip().lower() if len(args) > 1 else ''
+    global format, human, export_type
+    colums, fold, export_type, human, format = None, True, 'all', False, 'table'
+    option_val = args[2] if len(args) > 2 else ''
+    parse_start_pos = 3 if option == 'sql' else 2
+    if len(args) > parse_start_pos:
+        for index in range(parse_start_pos, len(args)):
+            p: str = args[index].strip().lower()
+            if p == 'false':
+                fold = False
+            elif p.isdigit() or ',' in p:
+                colums = list(map(lambda x: int(x), p.split(',')))
+            elif '-' in p:
+                t = p.split('-')
+                if t[0].isdigit() and t[1].isdigit():
+                    colums = [i for i in range(int(t[0]), int(t[1]) + 1)] if int(t[0]) <= int(t[1]) \
+                        else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
+            elif p == 'raw':
+                disable_color()
+            elif option in ('sql', 'desc', 'hist', 'history') and \
+                    p in ('text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'):
+                disable_color()
+                format = p
+                fold = False
+            elif option == 'export' and p in ('ddl', 'data', 'all'):
+                disable_color()
+                export_type = p
+                fold = False
+            elif p == 'human':
+                human = True
+            elif index == 2 and option in ('sql', 'desc', 'load', 'set', 'lock', 'unlock'):
+                # 第3个参数可以自定义输入的操作
+                continue
+            else:
+                print(ERROR_COLOR.wrap("Invalid param : \"{}\"".format(p)))
+                sys.exit(-1)
+
+    return option, colums, fold, option_val
 
 
 if __name__ == '__main__':
