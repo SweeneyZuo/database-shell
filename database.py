@@ -438,7 +438,9 @@ def desc_table(tab_name, fold, columns):
         tab_name = 'tbl_process_action_record_0'
 
     def print_description():
-        sql = 'desc {}'.format(tab_name)
+        sql = "select COLUMN_NAME,DATA_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
+              "from information_schema.columns where table_schema = '{}' and table_name = '{}' " \
+            .format(conf['database'], tab_name)
         if conf['servertype'] == 'sqlserver':
             sql = "select COLUMN_NAME,DATA_TYPE,IS_NULLABLE,COLUMN_DEFAULT,CHARACTER_MAXIMUM_LENGTH," \
                   "NUMERIC_PRECISION,NUMERIC_PRECISION_RADIX,NUMERIC_SCALE " \
