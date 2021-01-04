@@ -135,16 +135,27 @@ def show_database_info(info):
     env = info['use']['env'] if info else ''
     conf_name = info['use']['conf'] if info else ''
     conf = info['conf'][env].get(conf_name, {}) if info else {}
-    print(INFO_COLOR.wrap(
-        '[DATABASE INFO]: env={}, conf={}, serverType={}, host={}, port={}, user={}, password={}, database={}, lockStat={}.'.format(
-            env, conf_name,
-            conf.get('servertype', ''),
-            conf.get('host', ''),
-            conf.get('port', ''),
-            conf.get('user', ''),
-            conf.get('password', ''),
-            conf.get('database', ''),
-            is_locked())))
+
+    def print_start_info(table_width):
+        start_info_msg = '[DATABASE INFO]'
+        f = (int)((table_width - len(start_info_msg)) / 2)
+        b = table_width - len(start_info_msg) - f
+        print('{}{}{}'.format('#' * f, start_info_msg, '#' * b))
+
+    def print_end_info(table_width, total):
+        print('#' * table_width)
+
+    header = ['env', 'conf', 'serverType', 'host', 'port', 'user', 'password', 'database', 'lockStat']
+    print_table(header,
+                [[env, conf_name,
+                  conf.get('servertype', ''),
+                  conf.get('host', ''),
+                  conf.get('port', ''),
+                  conf.get('user', ''),
+                  conf.get('password', ''),
+                  conf.get('database', ''),
+                  is_locked()]], [i for i in range(len(header))],
+                split_char='-', start_func=print_start_info, end_func=print_end_info)
 
 
 def get_proc_home():
@@ -188,11 +199,10 @@ def show_history(fold):
         table_head = ['time', 'option', 'value', 'stat']
         res = [list(map(lambda cell: cell.replace("\n", ""), line.split('|'))) for line in read_history()]
         colums = [i for i in range(len(table_head))]
-        header, res = before_print(table_head, res, colums, fold)
-        print_table(table_head, res, colums)
-        write_history('history', '', Stat.OK)
+        print_result_set(table_head, res, colums, fold, None)
+        write_history('history', format, Stat.OK)
     except BaseException as e:
-        write_history('history', '', Stat.ERROR)
+        write_history('history', format, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
 
 
@@ -251,7 +261,7 @@ def tbl_process_action_record():
         yield 'tbl_process_action_record_{}'.format(i)
 
 
-def ExecQuery(sql, conn):
+def exe_query(sql, conn):
     tab_name = get_tab_name_from_sql(sql)
     res_list = []
     description = None
@@ -272,7 +282,7 @@ def ExecQuery(sql, conn):
     return description, res_list
 
 
-def ExecNonQuery(sql, conn):
+def exe_no_query(sql, conn):
     sql = sql.strip()
     effect_rows, description, res = None, None, []
     try:
@@ -310,13 +320,10 @@ def print_by_align(data, space_num, align_type, color=Color.NO_COLOR, end_str=' 
         print('{}{}'.format(' ' * space_num, color.wrap(data)), end=end_str)
     elif align_type == Align.ALIGN_LEFT:
         print('{}{}'.format(color.wrap(data), ' ' * space_num), end=end_str)
-    elif align_type == Align.ALIGN_CENTER:
+    else:
         half_space_num = int(space_num / 2)
         left_space_num = space_num - half_space_num
         print('{}{}{}'.format(' ' * half_space_num, color.wrap(data), ' ' * left_space_num), end=end_str)
-    else:
-        print(ERROR_COLOR.wrap("no align type, align_type={}".format(align_type)))
-        sys.exit(-1)
 
 
 def print_row_format(row, head_length,
@@ -364,17 +371,68 @@ def get_fields_length(rows, func):
     return length_head
 
 
-def show_sys_tables():
+def get_list_tab_sql(server_type, database_name):
+    if server_type == 'mysql':
+        return 'SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA=\'{}\''.format(database_name)
+    else:
+        return 'SELECT name FROM sys.tables ORDER BY name'
+
+
+def list_tables():
     conn, conf = get_connection_v2()
     if conn is None:
         return
-    servertype = conf['servertype']
-    if servertype == 'mysql':
-        sql = 'SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA=\'{}\''.format(conf['database'])
-    else:
-        sql = 'SELECT name FROM sys.tables ORDER BY name'
-    run_sql(sql, conn, False, [0])
+    run_sql(get_list_tab_sql(conf['servertype'], conf['database']), conn, False, [0])
     conn.close()
+
+
+def print_create_table(server_type, conn, tab_name):
+    def print_create_table_mysql():
+        sql = 'show create table {}'.format(tab_name)
+        effect_rows, description, res = exe_no_query(sql, conn)
+        header, res = before_print(get_table_head_from_description(description), res, [1], fold=False)
+        print(res[0][0])
+
+    def print_create_table_sqlserver():
+        sql = "select * from information_schema.columns where table_name = '{}'".format(tab_name)
+        sql2 = "sp_columns {}".format(tab_name)
+        effect_rows, description, res = exe_no_query(sql, conn)
+        effect_rows2, description2, res2 = exe_no_query(sql2, conn)
+        header, res = before_print(get_table_head_from_description(description), res, None, fold=False)
+        header2, res2 = before_print(get_table_head_from_description(description2), res2, None, fold=False)
+        print("CREATE TABLE [{}].[{}].[{}] (".format(res[0][0], res[0][1], res[0][2]))
+        for index, (row, row2) in enumerate(zip(res, res2)):
+            colum_name = row[3]
+            data_type = row[7] if row2[5] in ('ntext',) else row2[5]
+            print("  [{}] {}".format(colum_name, data_type), end="")
+            if row[8] is not None and data_type not in ('text',):
+                print("({})".format('max' if row[8] == -1 else row[8]), end="")
+            elif data_type in ('decimal', 'numeric'):
+                print("({},{})".format(row[10], row[12]), end="")
+            # elif ExecNonQuery("SELECT COLUMNPROPERTY(OBJECT_ID('{}'),'{}','IsIdentity')".format(tab_name, colum_name),
+            #                   conn)[2][0][0] == 1:
+            elif data_type.endswith("identity"):
+                ident_seed = exe_no_query("SELECT IDENT_SEED ('{}')".format(tab_name), conn)[2][0][0]
+                ident_incr = exe_no_query("SELECT IDENT_INCR('{}')".format(tab_name), conn)[2][0][0]
+                print("({},{})".format(ident_seed, ident_incr), end="")
+            if row2[12] is not None:
+                print(" DEFAULT {}".format(row2[12]), end="")
+            if row[19] is not None:
+                print(" COLLATE {}".format(row[19]), end="")
+            if row[6] == 'YES':
+                print(" NULL", end="")
+            if row[6] == 'NO':
+                print(" NOT NULL", end="")
+            if index == len(res) - 1:
+                print("")
+            else:
+                print(",")
+        print(")")
+
+    if server_type == 'mysql':
+        print_create_table_mysql()
+    elif server_type == 'sqlserver':
+        print_create_table_sqlserver()
 
 
 def desc_table(tab_name, fold, columns):
@@ -392,53 +450,8 @@ def desc_table(tab_name, fold, columns):
                   "from information_schema.columns where table_name = '{}'".format(tab_name)
         run_sql(sql, conn, fold, columns)
 
-    def print_create_table_mysql():
-        sql = 'show create table {}'.format(tab_name)
-        effect_rows, description, res = ExecNonQuery(sql, conn)
-        header, res = before_print(get_table_head_from_description(description), res, [1], fold=False)
-        print(res[0][0])
-
-    def print_create_table_sqlserver():
-        sql = "select * from information_schema.columns where table_name = '{}'".format(tab_name)
-        sql2 = "sp_columns {}".format(tab_name)
-        effect_rows, description, res = ExecNonQuery(sql, conn)
-        effect_rows2, description2, res2 = ExecNonQuery(sql2, conn)
-        header, res = before_print(get_table_head_from_description(description), res, None, fold=False)
-        header2, res2 = before_print(get_table_head_from_description(description2), res2, None, fold=False)
-        print("CREATE TABLE [{}].[{}].[{}] (".format(res[0][0], res[0][1], res[0][2]))
-        for index, (row, row2) in enumerate(zip(res, res2)):
-            colum_name = row[3]
-            data_type = row[7] if row2[5] in ('ntext',) else row2[5]
-            print("  [{}] {}".format(colum_name, data_type), end="")
-            if row[8] is not None and data_type not in ('text',):
-                print("({})".format('max' if row[8] == -1 else row[8]), end="")
-            elif data_type in ('decimal', 'numeric'):
-                print("({},{})".format(row[10], row[12]), end="")
-            # elif ExecNonQuery("SELECT COLUMNPROPERTY(OBJECT_ID('{}'),'{}','IsIdentity')".format(tab_name, colum_name),
-            #                   conn)[2][0][0] == 1:
-            elif data_type.endswith("identity"):
-                ident_seed = ExecNonQuery("SELECT IDENT_SEED ('{}')".format(tab_name), conn)[2][0][0]
-                ident_incr = ExecNonQuery("SELECT IDENT_INCR('{}')".format(tab_name), conn)[2][0][0]
-                print("({},{})".format(ident_seed, ident_incr), end="")
-            if row2[12] is not None:
-                print(" DEFAULT {}".format(row2[12]), end="")
-            if row[19] is not None:
-                print(" COLLATE {}".format(row[19]), end="")
-            if row[6] == 'YES':
-                print(" NULL", end="")
-            if row[6] == 'NO':
-                print(" NOT NULL", end="")
-            if index == len(res) - 1:
-                print("")
-            else:
-                print(",")
-        print(")")
-
     if format == 'sql':
-        if conf['servertype'] == 'mysql':
-            print_create_table_mysql()
-        elif conf['servertype'] == 'sqlserver':
-            print_create_table_sqlserver()
+        print_create_table(conf['servertype'], conn, tab_name)
     else:
         print_description()
     conn.close()
@@ -632,7 +645,7 @@ def print_markdown(header, res):
 def run_sql(sql: str, conn, fold=True, columns=None):
     sql = sql.strip()
     if sql.lower().startswith('select'):
-        description, res = ExecQuery(sql, conn)
+        description, res = exe_query(sql, conn)
         if not res:
             return
         print_result_set(get_table_head_from_description(description), res, columns, fold, sql)
@@ -669,7 +682,7 @@ def run_one_sql(sql: str, fold=True, columns=None):
 
 def print_result_set(header, res, columns, fold, sql):
     header, res = before_print(header, res, columns, fold)
-    if format == 'sql':
+    if format == 'sql' and sql is not None:
         print_insert_sql(header, res, get_tab_name_from_sql(sql))
     elif format == 'json':
         print_json(header, res)
@@ -687,13 +700,28 @@ def print_result_set(header, res, columns, fold, sql):
         print_xml(header, res)
     elif format == 'csv':
         print_csv(header, res)
-    else:
+    elif format == 'text':
+        def empty_start_func(table_width):
+            pass
+
+        def empty_after_print_row(max_row_length, split_char, table_width):
+            pass
+
+        def empty_end_func(table_width, total):
+            pass
+
+        columns = columns if colums is not None else [i for i in range(len(header))]
+        print_table(header, res, columns, start_func=empty_start_func,
+                    after_print_row_func=empty_after_print_row, end_func=empty_end_func)
+    elif format == 'table':
         print_table(header, res, columns)
+    else:
+        print(ERROR_COLOR.wrap("Invalid print format : \"{}\"".format(format)))
 
 
 def run_no_sql(no_sql, conn, fold=True, columns=None):
     no_sql = no_sql.strip()
-    effect_rows, description, res = ExecNonQuery(no_sql, conn)
+    effect_rows, description, res = exe_no_query(no_sql, conn)
     res = list(res) if res else res
     if description and res and len(description) > 0:
         print_result_set(get_table_head_from_description(description), res, columns, fold, no_sql)
@@ -764,28 +792,46 @@ def print_insert_sql(header, res, tab_name):
     return
 
 
-def print_table(header, res, columns):
+def default_print_start(table_width):
+    print(INFO_COLOR.wrap('Result Sets:'))
+
+
+def default_print_end(table_width, total):
+    print(INFO_COLOR.wrap('Total Records: {}'.format(total)))
+
+
+def default_after_print_row(max_row_length, split_char, table_width):
+    if max_row_length > SHOW_BOTTOM_THRESHOLD:
+        print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+
+
+def print_table(header, res, columns, split_char='-', start_func=default_print_start,
+                after_print_row_func=default_after_print_row, end_func=default_print_end):
     # 表头加上index
     header = ['{}({})'.format(str(i), str(index)) for index, i in
               enumerate(header)] if not columns and format == 'table' else list(header)
     res.insert(0, header)
     chinese_head_length = get_fields_length(res, chinese_length_str)
     max_row_length = sum(chinese_head_length)
-    max = 1 + max_row_length + 3 * len(chinese_head_length)
+    table_width = 1 + max_row_length + 3 * len(chinese_head_length)
     header = res.pop(0)
-    space_list_down = ['-' * i for i in chinese_head_length]
-    print(INFO_COLOR.wrap('Result Sets:'))
-    print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+    space_list_down = [split_char * i for i in chinese_head_length]
+    start_func(table_width)
+    # 打印表格的上顶线
+    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
     for index, r in enumerate(res):
         if index == 0:
+            # 打印HEADER部分
             print_row_format(header, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
                              color=TABLE_HEAD_COLOR)
+            # 打印HEADER和DATA之间的分割线
             print_row_format(space_list_down, chinese_head_length, color=Color.NO_COLOR)
+        # 打印DATA部分
         print_row_format(r, chinese_head_length, other_align_type=Align.ALIGN_LEFT, color=DATA_COLOR)
-        if max_row_length > SHOW_BOTTOM_THRESHOLD:
-            print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
-    print('{}'.format('-' * (max if max < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
-    print(INFO_COLOR.wrap('Total Records: {}'.format(len(res))))
+        after_print_row_func(max_row_length, split_char, table_width)
+    # 打印表格的下底线
+    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+    end_func(table_width, len(res))
 
 
 def print_info():
@@ -970,10 +1016,8 @@ def lock(key: str):
 
 def parse_args(args):
     option = args[1].strip().lower() if len(args) > 1 else ''
-    global format, human
-    format = 'table'
-    human = False
-    colums, fold = None, True
+    global format, human, export_type
+    colums, fold, export_type, human, format = None, True, 'all', False, 'table'
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
     if len(args) > parse_start_pos:
@@ -990,13 +1034,23 @@ def parse_args(args):
                         else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
             elif p == 'raw':
                 disable_color()
-            elif option in ('sql', 'desc') and \
-                    p in ('json', 'sql', 'html', 'html2', 'html3', 'html4','markdown', 'xml', 'csv'):
+            elif option in ('sql', 'desc', 'hist', 'history') and \
+                    p in ('text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'):
                 disable_color()
                 format = p
                 fold = False
+            elif option == 'export' and p in ('ddl', 'data', 'all'):
+                disable_color()
+                export_type = p
+                fold = False
             elif p == 'human':
                 human = True
+            elif index == 2 and option in ('sql', 'desc', 'load', 'set', 'lock', 'unlock'):
+                # 第3个参数可以自定义输入的操作
+                continue
+            else:
+                print(ERROR_COLOR.wrap("Invalid param : \"{}\"".format(p)))
+                sys.exit(-1)
 
     return option, colums, fold, option_val
 
@@ -1011,14 +1065,15 @@ conf        list all database configurations.
 hist        list today's command history.
 desc        <table name> view the description information of the table.
 load        <sql file> import sql file.
+export      [type] export type: ddl, data and all.
 shell       start an interactive shell.
 sql         <sql> [false] [raw] [human] [format] [column index]
             [false], disable fold.
             [raw], disable all color.
             [human], print timestamp in human readable, the premise is that the field contains "time".
-            [format], Print format: csv, table, html(2/3/4), markdown, xml, json and sql, the default is table.
+            [format], Print format: text, csv, table, html(2/3/4), markdown, xml, json and sql, the default is table.
             [column index], print specific columns, example: "0,1,2" or "0-2".
-set         <key=val> set database configuration, example: "env=qa", "conf=main_sqlserver".
+set         <key=val> set database configuration, example: "env=qa", "conf=main".
 lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
 unlock      <passwd> unlock database configuration.\n''')
     if not error_condition:
@@ -1126,13 +1181,43 @@ def show_conf():
     write_history('conf', '', Stat.OK)
 
 
+def test():
+    print('test', end='')
+    write_history('test', '', Stat.OK)
+
+
+def export():
+    format = 'sql'
+    conn, conf = get_connection_v2()
+    if conn is None:
+        return
+    tab_list = exe_query(get_list_tab_sql(conf['servertype'], conf['database']), conn)[1]
+    try:
+        for tab in tab_list:
+            if export_type in ('all', 'ddl'):
+                print('--\n-- Table structure for table "{}"\n--\n'.format(tab[0]))
+                print_create_table(conf['servertype'], conn, tab[0])
+                print('\n')
+            if export_type in ('all', 'data'):
+                print('--\n-- Dumping data for table "{}"\n--\n'.format(tab[0]))
+                sql = 'select * from {}'.format(tab[0])
+                run_sql(sql, conn, False)
+                print('\n')
+        write_history('export', export_type, Stat.OK)
+    except BaseException as e:
+        write_history('export', export_type, Stat.ERROR)
+        print(ERROR_COLOR.wrap(e))
+    finally:
+        conn.close()
+
+
 if __name__ == '__main__':
     try:
         opt, colums, fold, option_val = parse_args(sys.argv)
         if opt == 'info' or opt == '':
             print_info()
         elif opt == 'show':
-            show_sys_tables()
+            list_tables()
         elif opt == 'conf':
             show_conf()
         elif opt == 'hist' or opt == 'history':
@@ -1151,10 +1236,14 @@ if __name__ == '__main__':
             shell()
         elif opt == 'load':
             load(option_val)
+        elif opt == 'export':
+            export()
         elif opt == 'help':
             print_usage()
+        elif opt == 'test':
+            test()
         else:
             print(ERROR_COLOR.wrap("Invalid operation!!!"))
             print_usage(error_condition=True)
-    except BaseException as e:
+    except Exception as e:
         print(ERROR_COLOR.wrap(e))

@@ -1,0 +1,39 @@
+{
+    "use": {
+        "env": "dev",
+        "conf": "default"
+    },
+    "conf": {
+        "dev": {
+            "mysql1": {
+                "servertype": "mysql",
+                "host": "ip1",
+                "port": 3306,
+                "database": "database1",
+                "user": "user1",
+                "password": "password1"
+            }
+        },
+        "qa": {
+            "mysql1": {
+                "servertype": "mysql",
+                "host": "ip1",
+                "port": 3306,
+                "database": "database1",
+                "user": "user1",
+                "password": "password1"
+            }
+        },
+        "prod": {
+            "mysql1": {
+                "servertype": "mysql",
+                "host": "ip1",
+                "port": 3306,
+                "database": "database1",
+                "user": "user1",
+                "password": "password1"
+            }
+        }
+
+    }
+}
