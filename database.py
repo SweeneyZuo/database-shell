@@ -250,24 +250,13 @@ def get_tab_name_from_sql(sql: str):
         return None
 
 
-def tbl_process_action_record():
-    for i in range(10):
-        yield 'tbl_process_action_record_{}'.format(i)
-
-
 def exe_query(sql, conn):
-    tab_name = get_tab_name_from_sql(sql)
     res_list = []
     description = None
     try:
         cur = conn.cursor()
-        if tab_name and tab_name == 'tbl_process_action_record':
-            for real_tab_name in tbl_process_action_record():
-                cur.execute(sql.replace('tbl_process_action_record', real_tab_name))
-                res_list.extend(cur.fetchall())
-        else:
-            cur.execute(sql)
-            res_list.extend(cur.fetchall())
+        cur.execute(sql)
+        res_list.extend(cur.fetchall())
         description = cur.description
         write_history('sql', sql, Stat.OK)
     except BaseException as e:
@@ -433,8 +422,6 @@ def desc_table(tab_name, fold, columns):
     conn, conf = get_connection_v2()
     if conn is None:
         return
-    if tab_name and tab_name.startswith('tbl_process_action_record'):
-        tab_name = 'tbl_process_action_record_0'
 
     def print_description():
         sql = "select COLUMN_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
