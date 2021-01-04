@@ -126,11 +126,6 @@ def check_conf(dbconf: dict):
     return True
 
 
-def get_database_info_v2():
-    dbconf = read_info()
-    return dbconf
-
-
 def show_database_info(info):
     env = info['use']['env'] if info else ''
     conf_name = info['use']['conf'] if info else ''
@@ -207,7 +202,7 @@ def show_history(fold):
 
 
 def get_connection_v2():
-    info = get_database_info_v2()
+    info = read_info()
     if format == 'table':
         show_database_info(info)
     if not check_conf(info):
@@ -836,7 +831,7 @@ def print_table(header, res, columns, split_char='-', start_func=default_print_s
 
 def print_info():
     try:
-        config = get_database_info_v2()
+        config = read_info()
         config = {} if config is None else config
         show_database_info(config)
         write_history('info', '', Stat.OK)
