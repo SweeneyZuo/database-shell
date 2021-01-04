@@ -185,7 +185,6 @@ def read_history():
             with open(file, mode='r', encoding='UTF-8') as history_file:
                 history_list = history_file.readlines()
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-        # history_list.reverse()
     return history_list
 
 
@@ -438,13 +437,14 @@ def desc_table(tab_name, fold, columns):
         tab_name = 'tbl_process_action_record_0'
 
     def print_description():
-        sql = "select COLUMN_NAME,DATA_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
+        sql = "select COLUMN_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
               "from information_schema.columns where table_schema = '{}' and table_name = '{}' " \
             .format(conf['database'], tab_name)
         if conf['servertype'] == 'sqlserver':
-            sql = "select COLUMN_NAME,DATA_TYPE,IS_NULLABLE,COLUMN_DEFAULT,CHARACTER_MAXIMUM_LENGTH," \
+            sql = "select COLUMN_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,IS_NULLABLE,COLUMN_DEFAULT," \
                   "NUMERIC_PRECISION,NUMERIC_PRECISION_RADIX,NUMERIC_SCALE " \
-                  "from information_schema.columns where table_name = '{}'".format(tab_name)
+                  "from information_schema.columns where TABLE_CATALOG = '{}' and table_name = '{}'" \
+                .format(conf['database'], tab_name)
         run_sql(sql, conn, fold, columns)
 
     if format == 'sql':
@@ -786,7 +786,6 @@ def print_insert_sql(header, res, tab_name):
     template = "INSERT INTO {} ({}) VALUES ({});".format(tab_name, ",".join(header), "{}")
     for row in res:
         print(template.format(",".join(_case_for_sql(row))))
-    return
 
 
 def default_print_start(table_width):
@@ -875,8 +874,8 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
                         read_info['use']['conf'] = set_conf_value
                         print(INFO_COLOR.wrap("set conf={} ok.".format(set_conf_value)))
                 elif opt is Opt.UPDATE:
-                    i = input(WARN_COLOR.wrap("Are you sure you want to add this configuration? Y/N:"))
-                    if i.lower() == 'y' or i.lower() == 'yes':
+                    i = input(WARN_COLOR.wrap("Are you sure you want to add this configuration? Y/N:")).lower()
+                    if i in ('y', 'yes'):
                         read_info['use']['conf'] = set_conf_value
                         read_info['conf'][read_info['use']['env']][read_info['use']['conf']] = {}
                         print(INFO_COLOR.wrap(
