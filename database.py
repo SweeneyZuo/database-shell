@@ -1147,6 +1147,7 @@ def test():
 
 
 def export():
+    global format
     format = 'sql'
     conn, conf = get_connection_v2()
     if conn is None:
