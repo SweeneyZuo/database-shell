@@ -813,7 +813,7 @@ def print_table(header, res, columns, split_char='-', start_func=default_print_s
     space_list_down = [split_char * i for i in chinese_head_length]
     start_func(table_width)
     # 打印表格的上顶线
-    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH or format == 'text' else ROW_MAX_WIDTH)))
     for index, r in enumerate(res):
         if index == 0:
             # 打印HEADER部分
@@ -825,7 +825,7 @@ def print_table(header, res, columns, split_char='-', start_func=default_print_s
         print_row_format(r, chinese_head_length, other_align_type=Align.ALIGN_LEFT, color=DATA_COLOR)
         after_print_row_func(max_row_length, split_char, table_width)
     # 打印表格的下底线
-    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
+    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH or format == 'text' else ROW_MAX_WIDTH)))
     end_func(table_width, len(res))
 
 
@@ -1173,34 +1173,37 @@ def export():
 def parse_args(args):
     option = args[1].strip().lower() if len(args) > 1 else ''
     global format, human, export_type
-    colums, fold, export_type, human, format = None, True, 'all', False, 'table'
+    colums, fold, export_type, human, format, \
+    set_format, set_human, set_export_type, set_colums, set_fold, set_raw = None, True, 'all', False, 'table' \
+        , False, False, False, False, False, False
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
     if len(args) > parse_start_pos:
         for index in range(parse_start_pos, len(args)):
             p: str = args[index].strip().lower()
-            if p == 'false':
-                fold = False
-            elif p.isdigit() or ',' in p:
+            if not set_fold and p == 'false':
+                fold, set_fold = False, True
+            elif not set_colums and p.isdigit() or ',' in p:
                 colums = list(map(lambda x: int(x), p.split(',')))
-            elif '-' in p:
+                set_colums = True
+            elif not set_colums and '-' in p:
                 t = p.split('-')
                 if t[0].isdigit() and t[1].isdigit():
                     colums = [i for i in range(int(t[0]), int(t[1]) + 1)] if int(t[0]) <= int(t[1]) \
                         else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
-            elif p == 'raw':
+                set_colums = True
+            elif not set_raw and p == 'raw':
+                set_raw = True
                 disable_color()
-            elif option in ('sql', 'desc', 'hist', 'history') and \
+            elif not set_format and option in ('sql', 'desc', 'hist', 'history') and \
                     p in ('text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'):
                 disable_color()
-                format = p
-                fold = False
-            elif option == 'export' and p in ('ddl', 'data', 'all'):
+                format, fold, set_format = p, False, True
+            elif not set_export_type and option == 'export' and p in ('ddl', 'data', 'all'):
                 disable_color()
-                export_type = p
-                fold = False
-            elif p == 'human':
-                human = True
+                export_type, fold, set_export_type = p, False, True
+            elif not set_human and p == 'human':
+                human, set_human = True, True
             elif index == 2 and option in ('sql', 'desc', 'load', 'set', 'lock', 'unlock'):
                 # 第3个参数可以自定义输入的操作
                 continue
