@@ -356,9 +356,9 @@ def get_fields_length(rows, func):
 
 def get_list_tab_sql(server_type, database_name):
     if server_type == 'mysql':
-        return 'SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA=\'{}\''.format(database_name)
+        return "SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA='{}'".format(database_name)
     else:
-        return 'SELECT name FROM sys.tables ORDER BY name'
+        return "SELECT name FROM sys.tables ORDER BY name"
 
 
 def list_tables():
@@ -650,8 +650,7 @@ def before_print(header, res, columns, fold=True):
     deal_bin(res)
     res = deal_human(res) if human else res
     res = fold_res(res) if fold else res
-    header = res.pop(0)
-    return header, res
+    return res.pop(0), res
 
 
 def run_one_sql(sql: str, fold=True, columns=None):
@@ -698,7 +697,7 @@ def print_result_set(header, res, columns, fold, sql):
     elif format == 'table':
         print_table(header, res, columns)
     else:
-        print(ERROR_COLOR.wrap("Invalid print format : \"{}\"".format(format)))
+        print(ERROR_COLOR.wrap('Invalid print format : "{}"'.format(format)))
 
 
 def run_no_sql(no_sql, conn, fold=True, columns=None):
@@ -750,6 +749,10 @@ def deal_human(rows):
 
 
 def print_insert_sql(header, res, tab_name):
+    if tab_name is None:
+        print(ERROR_COLOR.wrap("Can't get table name !"))
+        return
+
     def _case_for_sql(row):
         res = []
         for e in row:
@@ -862,10 +865,10 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
                         read_info['use']['conf'] = set_conf_value
                         read_info['conf'][read_info['use']['env']][read_info['use']['conf']] = {}
                         print(INFO_COLOR.wrap(
-                            "Add \"{}\" conf in env={}".format(set_conf_value, read_info['use']['env'])))
+                            'Add "{}" conf in env={}'.format(set_conf_value, read_info['use']['env'])))
                 continue
             elif conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
-                print(ERROR_COLOR.wrap("\"{}\" not supported".format(set_conf_value)))
+                print(ERROR_COLOR.wrap('"{}" not supported'.format(set_conf_value)))
                 continue
             elif conf_key == 'autocommit':
                 set_conf_value = set_conf_value == 'true'
@@ -916,7 +919,7 @@ def set_info(kv):
                 write_history('set', kv, Stat.ERROR)
                 return
             if is_locked():
-                print(ERROR_COLOR.wrap('db is locked! can\'t set value.'))
+                print(ERROR_COLOR.wrap("db is locked! can't set value."))
                 write_history('set', kv, Stat.ERROR)
                 return
             kv_pair = kv.split('=')
@@ -1197,7 +1200,7 @@ def parse_args(args):
                 # 第3个参数可以自定义输入的操作
                 continue
             else:
-                print(ERROR_COLOR.wrap("Invalid param : \"{}\"".format(p)))
+                print(ERROR_COLOR.wrap('Invalid param : "{}"'.format(p)))
                 sys.exit(-1)
 
     return option, colums, fold, option_val
