@@ -344,10 +344,10 @@ def get_fields_length(rows, func):
     def length(iterable):
         l = 0
         for row in iterable:
-            l = len(row) if l < len(row) else l
+            return len(row) if l < len(row) else l
         return l
 
-    length_head = [0 for i in range(length(rows))]
+    length_head = length(rows) * [0]
     for row in rows:
         for index, e in enumerate(row):
             length_head[index] = func(e) if func(e) > length_head[index] else length_head[index]
@@ -660,6 +660,10 @@ def run_one_sql(sql: str, fold=True, columns=None):
     run_sql(sql, conn, fold, columns)
     conn.close()
 
+
+def scan_table(table_name, fold=True, columns=None):
+    sql = "select * from {}".format(table_name)
+    run_one_sql(sql, fold, columns)
 
 def print_result_set(header, res, columns, fold, sql):
     header, res = before_print(header, res, columns, fold)
@@ -1007,6 +1011,7 @@ desc        <table name> view the description information of the table.
 load        <sql file> import sql file.
 export      [type] export type: ddl, data and all.
 shell       start an interactive shell.
+scan        <table name> scan full table.
 sql         <sql> [false] [raw] [human] [format] [column index]
             [false], disable fold.
             [raw], disable all color.
@@ -1187,7 +1192,7 @@ def parse_args(args):
             elif not set_raw and p == 'raw':
                 set_raw = True
                 disable_color()
-            elif not set_format and option in ('sql', 'desc', 'hist', 'history') and \
+            elif not set_format and option in ('sql', 'scan', 'desc', 'hist', 'history') and \
                     p in ('text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'):
                 disable_color()
                 format, fold, set_format = p, False, True
@@ -1196,7 +1201,7 @@ def parse_args(args):
                 export_type, fold, set_export_type = p, False, True
             elif not set_human and p == 'human':
                 human, set_human = True, True
-            elif index == 2 and option in ('sql', 'desc', 'load', 'set', 'lock', 'unlock'):
+            elif index == 2 and option in ('sql', 'scan', 'desc', 'load', 'set', 'lock', 'unlock'):
                 # 第3个参数可以自定义输入的操作
                 continue
             else:
@@ -1221,6 +1226,8 @@ if __name__ == '__main__':
             desc_table(option_val, fold, colums)
         elif opt == 'sql':
             run_one_sql(option_val, fold, colums)
+        elif opt == 'scan':
+            scan_table(option_val, fold, colums)
         elif opt == 'set':
             set_info(option_val)
         elif opt == 'lock':
