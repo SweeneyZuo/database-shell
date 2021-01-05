@@ -392,8 +392,6 @@ def print_create_table(server_type, conn, tab_name):
                 print("({})".format('max' if row[8] == -1 else row[8]), end="")
             elif data_type in ('decimal', 'numeric'):
                 print("({},{})".format(row[10], row[12]), end="")
-            # elif ExecNonQuery("SELECT COLUMNPROPERTY(OBJECT_ID('{}'),'{}','IsIdentity')".format(tab_name, colum_name),
-            #                   conn)[2][0][0] == 1:
             elif data_type.endswith("identity"):
                 ident_seed = exe_no_query("SELECT IDENT_SEED ('{}')".format(tab_name), conn)[2][0][0]
                 ident_incr = exe_no_query("SELECT IDENT_INCR('{}')".format(tab_name), conn)[2][0][0]
@@ -493,7 +491,7 @@ def print_html_head(html_head_file_name):
             print(line, end='')
 
 
-def print_html(header, res):
+def print_html3(header, res):
     print_html_head('html1.head')
     l = len(header) - 1
     for index, head in enumerate(header):
@@ -537,7 +535,7 @@ def print_html2(header, res):
     print("</table>\n</body>\n</html>")
 
 
-def print_html3(header, res):
+def print_html(header, res):
     print_html_head('html3.head')
     l = len(header) - 1
     for index, head in enumerate(header):
@@ -723,8 +721,7 @@ def deal_csv(res):
         else:
             return cell_data
 
-    new_res = [[to_csv_cell(cell_data) for cell_data in row] for row in res]
-    return new_res
+    return [[to_csv_cell(cell_data) for cell_data in row] for row in res]
 
 
 def deal_human(rows):
@@ -753,8 +750,6 @@ def deal_human(rows):
 
 
 def print_insert_sql(header, res, tab_name):
-    header = list(map(lambda x: str(x), header))
-
     def _case_for_sql(row):
         res = []
         for e in row:
@@ -770,6 +765,7 @@ def print_insert_sql(header, res, tab_name):
                 res.append("'{}'".format(e))
         return res
 
+    header = list(map(lambda x: str(x), header))
     template = "INSERT INTO {} ({}) VALUES ({});".format(tab_name, ",".join(header), "{}")
     for row in res:
         print(template.format(",".join(_case_for_sql(row))))
@@ -1049,7 +1045,10 @@ def is_executable(sql):
            or t_sql.startswith('go') \
            or t_sql.startswith('use') \
            or t_sql.startswith('if') \
-           or t_sql.startswith('with')
+           or t_sql.startswith('with') \
+           or t_sql.startswith('show') \
+           or t_sql.startswith('desc') \
+           or t_sql.startswith('grant')
 
 
 def load(path):
