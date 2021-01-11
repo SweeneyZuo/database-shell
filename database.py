@@ -491,8 +491,7 @@ def print_html_head(html_head_file_name):
             print(line, end='')
 
 
-def print_html3(header, res):
-    print_html_head('html1.head')
+def print_header_with_html(header):
     l = len(header) - 1
     for index, head in enumerate(header):
         if index == 0:
@@ -501,6 +500,12 @@ def print_html3(header, res):
         print("<th>{}</th>".format(head), end="")
         if index == l:
             print("</tr>")
+    return l
+
+
+def print_html3(header, res):
+    print_html_head('html1.head')
+    l = print_header_with_html(header)
     for row in res:
         for index, e in enumerate(row):
             if index == 0:
@@ -515,14 +520,7 @@ def print_html3(header, res):
 
 def print_html2(header, res):
     print_html_head('html2.head')
-    l = len(header) - 1
-    for index, head in enumerate(header):
-        if index == 0:
-            print("<tr>", end="")
-        head = "" if head is None else head
-        print("<th>{}</th>".format(head), end="")
-        if index == l:
-            print("</tr>")
+    l = print_header_with_html(header)
     for row_num, row in enumerate(res):
         for index, e in enumerate(row):
             if index == 0:
@@ -537,14 +535,7 @@ def print_html2(header, res):
 
 def print_html(header, res):
     print_html_head('html3.head')
-    l = len(header) - 1
-    for index, head in enumerate(header):
-        if index == 0:
-            print("<tr>", end="")
-        head = "" if head is None else head
-        print("<th>{}</th>".format(head), end="")
-        if index == l:
-            print("</tr>")
+    l = print_header_with_html(header)
     for row in res:
         for index, e in enumerate(row):
             if index == 0:
@@ -664,6 +655,7 @@ def run_one_sql(sql: str, fold=True, columns=None):
 def scan_table(table_name, fold=True, columns=None):
     sql = "select * from {}".format(table_name)
     run_one_sql(sql, fold, columns)
+
 
 def print_result_set(header, res, columns, fold, sql):
     header, res = before_print(header, res, columns, fold)
