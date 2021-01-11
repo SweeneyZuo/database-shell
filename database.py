@@ -581,7 +581,7 @@ def print_csv(header, res, split_char=','):
     for row in res:
         new_row = []
         for data in row:
-            print_data = "" if data is None else str(data)
+            print_data = "NULL" if data is None else str(data)
             if split_char in print_data or '\n' in print_data or '\r' in print_data:
                 print_data = '"{}"'.format(print_data.replace('"', '""'))
             new_row.append(print_data)
@@ -622,7 +622,7 @@ def deal_bin(res):
 
 def before_print(header, res, columns, fold=True):
     """
-        需要注意不能改变原本数据的类型，除了需要替换成其它数据的情况除外
+        需要注意不能改变原本数据的类型，除了需要替换成其它数据的情况
     """
     res = [] if res is None else [list(row) for row in res]
     res.insert(0, header if isinstance(header, list) else list(header))
@@ -696,18 +696,6 @@ def run_no_sql(no_sql, conn, fold=True, columns=None):
         print_result_set(get_table_head_from_description(description), res, columns, fold, no_sql)
     if effect_rows and format == 'table':
         print(INFO_COLOR.wrap('Effect rows:{}'.format(effect_rows)))
-
-
-def deal_csv(res):
-    def to_csv_cell(cell_data):
-        if cell_data is None:
-            return 'NULL'
-        elif isinstance(cell_data, str) and (',' in cell_data or '\n' in cell_data or '\r' in cell_data):
-            return '"{}"'.format(cell_data.replace('"', '""'))
-        else:
-            return cell_data
-
-    return [[to_csv_cell(cell_data) for cell_data in row] for row in res]
 
 
 def deal_human(rows):
