@@ -150,7 +150,7 @@ def show_database_info(info):
                   conf.get('password', ''),
                   conf.get('database', ''),
                   is_locked()]], [i for i in range(len(header))],
-                split_char='-', start_func=print_start_info, end_func=print_end_info)
+                split_row_char='-', start_func=print_start_info, end_func=print_end_info)
 
 
 def get_proc_home():
@@ -276,7 +276,8 @@ def exe_no_query(sql, conn):
         try:
             res = cur.fetchall()
         except:
-            print(WARN_COLOR.wrap('No Result Sets!'))
+            if not effect_rows and format == 'table':
+                print(WARN_COLOR.wrap('Empty Sets!'))
         conn.commit()
         write_history('sql', sql, Stat.OK)
     except BaseException as e:
@@ -309,45 +310,35 @@ def print_by_align(data, space_num, align_type, color=Color.NO_COLOR, end_str=' 
         print('{}{}{}'.format(' ' * half_space_num, color.wrap(data), ' ' * left_space_num), end=end_str)
 
 
-def print_row_format(row, head_length,
-                     digit_align_type=Align.ALIGN_RIGHT,
-                     other_align_type=Align.ALIGN_CENTER,
-                     color=Color.NO_COLOR):
-    def isdigit(e):
-        if isinstance(e, int) or isinstance(e, float):
-            return True
-        elif isinstance(e, str):
-            try:
-                float(e)
-                return True
-            except ValueError:
-                return False
-        return False
+def isdigit(e):
+    return isinstance(e, int) or isinstance(e, float)
 
-    end_str = ' | '
+
+def print_row_format(row, head_length,
+                     align_list=None,
+                     color=Color.NO_COLOR, split_char='|'):
+    end_str = ' {} '.format(split_char)
+    if align_list is None:
+        align_list = [Align.ALIGN_CENTER for i in range(len(row))]
     for index, e in enumerate(row):
         e_str = 'NULL' if e is None else str(e)
         space_num = abs(chinese_length_str(e_str) - head_length[index])
         if index == 0:
-            print('| ', end='')
-        if isdigit(e):
-            # 数字采用右对齐
-            print_by_align(e_str, space_num, align_type=digit_align_type, color=color, end_str=end_str)
-        else:
-            print_by_align(e_str, space_num, align_type=other_align_type, color=color, end_str=end_str)
+            print('{} '.format(split_char), end='')
+        print_by_align(e_str, space_num, align_type=align_list[index], color=color, end_str=end_str)
         if index == len(row) - 1:
             # 行尾
             print()
 
 
-def get_fields_length(rows, func):
-    def length(iterable):
+def get_max_length_each_fields(rows, func):
+    def col_len(iterable):
         l = 0
         for row in iterable:
             return len(row) if l < len(row) else l
         return l
 
-    length_head = length(rows) * [0]
+    length_head = col_len(rows) * [0]
     for row in rows:
         for index, e in enumerate(row):
             length_head[index] = func(e) if func(e) > length_head[index] else length_head[index]
@@ -425,12 +416,21 @@ def desc_table(tab_name, fold, columns):
         sql = "select COLUMN_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
               "from information_schema.columns where table_schema = '{}' and table_name = '{}' " \
             .format(conf['database'], tab_name)
+        header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
         if conf['servertype'] == 'sqlserver':
             sql = "select COLUMN_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,IS_NULLABLE,COLUMN_DEFAULT," \
                   "NUMERIC_PRECISION,NUMERIC_PRECISION_RADIX,NUMERIC_SCALE " \
                   "from information_schema.columns where TABLE_CATALOG = '{}' and table_name = '{}'" \
                 .format(conf['database'], tab_name)
-        run_sql(sql, conn, fold, columns)
+            header = ['Name', 'Type', 'Nullable', 'Default', 'Precision', 'Precision_radix',
+                      'Precision_scale']
+        description, res = exe_query(sql, conn)
+        res = [list(row) for row in res]
+        for row in res:
+            if row[2]:
+                row[1] = '{}({})'.format(row[1], row[2])
+            row.pop(2)
+        print_result_set(header, res, columns if columns else [i for i in range(len(header))], fold, sql)
 
     if format == 'sql':
         print_create_table(conf['servertype'], conn, tab_name)
@@ -459,30 +459,20 @@ def get_max_len(list):
 
 
 def get_table_head_from_description(description):
-    return [desc[0] for desc in description]
+    return [desc[0] for desc in description] if description else []
 
 
 def fold_res(res):
     if res:
-        res_new = []
-        for line in res:
-            line_new = []
-            for e in line:
-                str_e = str(e)
-                line_new.append(e) if len(str_e) < FOLD_LIMIT else (
-                    line_new.append(str_e[:FOLD_LIMIT - 3] + FOLD_COLOR.wrap(FOLD_REPLACE_STR)))
-            res_new.append(line_new)
-        return res_new
+        return [[e if len(str(e)) < FOLD_LIMIT else
+                 str(e)[:FOLD_LIMIT - 3] + FOLD_COLOR.wrap(FOLD_REPLACE_STR) for e in line] for line in res]
     return res
 
 
 def print_json(header, res):
     global human
     for row in res:
-        if human:
-            print(json.dumps(dict(zip(header, row)), indent=2))
-        else:
-            print(json.dumps(dict(zip(header, row))))
+        print(json.dumps(dict(zip(header, row)), indent=2)) if human else print(json.dumps(dict(zip(header, row))))
 
 
 def print_html_head(html_head_file_name):
@@ -593,8 +583,7 @@ def print_csv(header, res, split_char=','):
         for data in row:
             print_data = "" if data is None else str(data)
             if split_char in print_data or '\n' in print_data or '\r' in print_data:
-                print_data = print_data.replace('"', '""')
-                print_data = '"{}"'.format(print_data)
+                print_data = '"{}"'.format(print_data.replace('"', '""'))
             new_row.append(print_data)
         print(split_char.join(new_row))
 
@@ -619,8 +608,6 @@ def run_sql(sql: str, conn, fold=True, columns=None):
     sql = sql.strip()
     if sql.lower().startswith('select'):
         description, res = exe_query(sql, conn)
-        if not res:
-            return
         print_result_set(get_table_head_from_description(description), res, columns, fold, sql)
     else:
         run_no_sql(sql, conn, fold, columns)
@@ -634,10 +621,12 @@ def deal_bin(res):
 
 
 def before_print(header, res, columns, fold=True):
-    res = [] if res is None else list(res)
-    res.insert(0, header)
+    """
+        需要注意不能改变原本数据的类型，除了需要替换成其它数据的情况除外
+    """
+    res = [] if res is None else [list(row) for row in res]
+    res.insert(0, header if isinstance(header, list) else list(header))
     res = [[line[i] for i in columns] for line in res] if columns else res
-    res = [list(row) for row in res]
     deal_bin(res)
     res = deal_human(res) if human else res
     res = fold_res(res) if fold else res
@@ -658,6 +647,9 @@ def scan_table(table_name, fold=True, columns=None):
 
 
 def print_result_set(header, res, columns, fold, sql):
+    if not res and format == 'table':
+        print(WARN_COLOR.wrap('Empty Sets!'))
+        return
     header, res = before_print(header, res, columns, fold)
     if format == 'sql' and sql is not None:
         print_insert_sql(header, res, get_tab_name_from_sql(sql))
@@ -687,7 +679,7 @@ def print_result_set(header, res, columns, fold, sql):
         def empty_end_func(table_width, total):
             pass
 
-        columns = columns if colums is not None else [i for i in range(len(header))]
+        columns = [i for i in range(len(header))] if colums is None else columns
         print_table(header, res, columns, start_func=empty_start_func,
                     after_print_row_func=empty_after_print_row, end_func=empty_end_func)
     elif format == 'table':
@@ -700,7 +692,7 @@ def run_no_sql(no_sql, conn, fold=True, columns=None):
     no_sql = no_sql.strip()
     effect_rows, description, res = exe_no_query(no_sql, conn)
     res = list(res) if res else res
-    if description and res and len(description) > 0:
+    if description and res:
         print_result_set(get_table_head_from_description(description), res, columns, fold, no_sql)
     if effect_rows and format == 'table':
         print(INFO_COLOR.wrap('Effect rows:{}'.format(effect_rows)))
@@ -709,10 +701,9 @@ def run_no_sql(no_sql, conn, fold=True, columns=None):
 def deal_csv(res):
     def to_csv_cell(cell_data):
         if cell_data is None:
-            return ''
+            return 'NULL'
         elif isinstance(cell_data, str) and (',' in cell_data or '\n' in cell_data or '\r' in cell_data):
-            cell_data = cell_data.replace('"', '""')
-            return '"{}"'.format(cell_data)
+            return '"{}"'.format(cell_data.replace('"', '""'))
         else:
             return cell_data
 
@@ -783,32 +774,45 @@ def default_after_print_row(max_row_length, split_char, table_width):
         print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
 
 
-def print_table(header, res, columns, split_char='-', start_func=default_print_start,
+def print_table(header, res, columns, split_row_char='-', start_func=default_print_start,
                 after_print_row_func=default_after_print_row, end_func=default_print_end):
+    def _get_align_list(res_list):
+        align_list = [Align.ALIGN_LEFT for i in range(len(res_list[0]) if len(res_list) > 0 else 0)]
+        for col_index in range(len(align_list)):
+            for row in res_list:
+                # 数字采用右对齐
+                if isdigit(row[col_index]):
+                    align_list[col_index] = Align.ALIGN_RIGHT
+                    break
+        return align_list
+
     # 表头加上index
     header = ['{}({})'.format(str(i), str(index)) for index, i in
               enumerate(header)] if not columns and format == 'table' else list(header)
     res.insert(0, header)
-    chinese_head_length = get_fields_length(res, chinese_length_str)
-    max_row_length = sum(chinese_head_length)
-    table_width = 1 + max_row_length + 3 * len(chinese_head_length)
+    max_length_each_fields = get_max_length_each_fields(res, chinese_length_str)
+    # 数据的总长度
+    max_row_length = sum(max_length_each_fields)
+    # 表格的宽度(数据长度加上分割线)
+    table_width = 1 + max_row_length + 3 * len(max_length_each_fields)
     header = res.pop(0)
-    space_list_down = [split_char * i for i in chinese_head_length]
+    space_list_down = [split_row_char * i for i in max_length_each_fields]
     start_func(table_width)
+    align_list = _get_align_list(res)
     # 打印表格的上顶线
-    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH or format == 'text' else ROW_MAX_WIDTH)))
+    print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
     for index, r in enumerate(res):
         if index == 0:
             # 打印HEADER部分
-            print_row_format(header, chinese_head_length, other_align_type=Align.ALIGN_CENTER,
+            print_row_format(header, max_length_each_fields, align_list=align_list,
                              color=TABLE_HEAD_COLOR)
             # 打印HEADER和DATA之间的分割线
-            print_row_format(space_list_down, chinese_head_length, color=Color.NO_COLOR)
+            print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
         # 打印DATA部分
-        print_row_format(r, chinese_head_length, other_align_type=Align.ALIGN_LEFT, color=DATA_COLOR)
-        after_print_row_func(max_row_length, split_char, table_width)
+        print_row_format(r, max_length_each_fields, align_list=align_list, color=DATA_COLOR)
+        after_print_row_func(max_row_length, split_row_char, table_width)
     # 打印表格的下底线
-    print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH or format == 'text' else ROW_MAX_WIDTH)))
+    print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
     end_func(table_width, len(res))
 
 
