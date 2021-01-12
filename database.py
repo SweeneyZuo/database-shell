@@ -774,10 +774,14 @@ def print_table(header, res, columns, split_row_char='-', start_func=default_pri
                     break
         return align_list
 
+    def _deal_res(res):
+        return [[e.replace('\r', '\\r').replace('\n', '\\n') if isinstance(e, str) else e for e in row] for row in res]
+
     # 表头加上index
     header = ['{}({})'.format(str(i), str(index)) for index, i in
               enumerate(header)] if not columns and format == 'table' else list(header)
     res.insert(0, header)
+    res = _deal_res(res)
     max_length_each_fields = get_max_length_each_fields(res, chinese_length_str)
     # 数据的总长度
     max_row_length = sum(max_length_each_fields)
