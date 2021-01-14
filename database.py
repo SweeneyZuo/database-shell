@@ -418,17 +418,15 @@ def desc_table(tab_name, fold, columns):
             .format(conf['database'], tab_name)
         header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
         if conf['servertype'] == 'sqlserver':
-            sql = "select COLUMN_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,IS_NULLABLE,COLUMN_DEFAULT," \
-                  "NUMERIC_PRECISION,NUMERIC_PRECISION_RADIX,NUMERIC_SCALE " \
-                  "from information_schema.columns where TABLE_CATALOG = '{}' and table_name = '{}'" \
+            sql = "SELECT col.name AS name, t.name AS type, isc.CHARACTER_MAXIMUM_LENGTH AS CHARACTER_MAXIMUM_LENGTH , CASE  WHEN col.isnullable = 1 THEN 'YES' ELSE 'NO' END AS 允许空 , CASE  WHEN EXISTS ( SELECT 1 FROM dbo.sysindexes si INNER JOIN dbo.sysindexkeys sik ON si.id = sik.id AND si.indid = sik.indid INNER JOIN dbo.syscolumns sc ON sc.id = sik.id AND sc.colid = sik.colid INNER JOIN dbo.sysobjects so ON so.name = si.name AND so.xtype = 'PK' WHERE sc.id = col.id AND sc.colid = col.colid ) THEN 'YES' ELSE '' END AS 是否主键, comm.text AS 默认值 , CASE  WHEN COLUMNPROPERTY(col.id, col.name, 'IsIdentity') = 1 THEN 'auto_increment' ELSE '' END AS Extra, ISNULL(ep.value, '') AS 列说明 FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype = t.xusertype INNER JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN dbo.syscomments comm ON col.cdefault = comm.id LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' LEFT JOIN sys.extended_properties epTwo ON obj.id = epTwo.major_id AND epTwo.minor_id = 0 AND epTwo.name = 'MS_Description' LEFT JOIN information_schema.columns isc ON obj.name = isc.TABLE_NAME AND col.name = isc.COLUMN_NAME WHERE isc.TABLE_CATALOG = '{}' AND obj.name = '{}' ORDER BY col.colorder" \
                 .format(conf['database'], tab_name)
-            header = ['Name', 'Type', 'Nullable', 'Default', 'Precision', 'Precision_radix',
-                      'Precision_scale']
+            header = ['Name', 'Type', 'Nullable', 'Is_Primary', 'Default', 'Extra', 'Comment']
         description, res = exe_query(sql, conn)
         res = [list(row) for row in res]
         for row in res:
             if row[2]:
-                row[1] = '{}({})'.format(row[1], row[2])
+                row[1] = '{}({})'.format(row[1],
+                                         'max' if conf['servertype'] == 'sqlserver' and row[2] == -1 else row[2])
             row.pop(2)
         print_result_set(header, res, columns if columns else [i for i in range(len(header))], fold, sql)
 
@@ -617,7 +615,10 @@ def deal_bin(res):
     for row in res:
         for index, e in enumerate(row):
             if isinstance(e, bytearray) or isinstance(e, bytes):
-                row[index] = str(base64.standard_b64encode(e), 'utf8')
+                try:
+                    row[index] = str(e, 'utf8')
+                except Exception as ex:
+                    row[index] = str(base64.standard_b64encode(e))
 
 
 def before_print(header, res, columns, fold=True):
@@ -1237,3 +1238,6 @@ if __name__ == '__main__':
             print_usage(error_condition=True)
     except Exception as e:
         print(ERROR_COLOR.wrap(e))
+        import traceback
+
+        traceback.print_exception(chain=e)
