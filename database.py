@@ -193,8 +193,7 @@ def show_history(fold):
     try:
         table_head = ['time', 'option', 'value', 'stat']
         res = [list(map(lambda cell: cell.replace("\n", ""), line.split('|'))) for line in read_history()]
-        columns = [i for i in range(len(table_head))]
-        print_result_set(table_head, res, columns, fold, None)
+        print_result_set(table_head, res, None, fold, None)
         write_history('history', format, Stat.OK)
     except BaseException as e:
         write_history('history', format, Stat.ERROR)
@@ -1079,7 +1078,7 @@ def load(path):
                         continue
                     elif is_executable(t_sql):
                         if sql == '':
-                            sql = "{}{}".format(sql, line)
+                            sql = line
                             continue
                         success, fail = exe_sql(cur, sql)
                         success_num += success
@@ -1189,6 +1188,8 @@ def parse_args(args):
             elif index == 2 and option in {'sql', 'scan', 'desc', 'load', 'set', 'lock', 'unlock'}:
                 # 第3个参数可以自定义输入的操作
                 continue
+            elif not set_format and option in {'sql', 'scan', 'desc', 'hist', 'history'} and p == 'table':
+                set_format, format = True, 'table'
             else:
                 print(ERROR_COLOR.wrap('Invalid param : "{}"'.format(p)))
                 sys.exit(-1)
