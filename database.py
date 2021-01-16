@@ -1,19 +1,20 @@
 import warnings
 
 warnings.filterwarnings("ignore")
-import fcntl
-import hashlib
-import json
 import os
-import pymysql
 import re
 import sys
+import json
 import time
-from datetime import datetime
-from enum import Enum
+import html
+import fcntl
 import base64
 import pymssql
-import html
+import pymysql
+import hashlib
+import traceback
+from enum import Enum
+from datetime import datetime
 
 
 class DatabaseType(Enum):
@@ -192,15 +193,15 @@ def show_history(fold):
     try:
         table_head = ['time', 'option', 'value', 'stat']
         res = [list(map(lambda cell: cell.replace("\n", ""), line.split('|'))) for line in read_history()]
-        colums = [i for i in range(len(table_head))]
-        print_result_set(table_head, res, colums, fold, None)
+        columns = [i for i in range(len(table_head))]
+        print_result_set(table_head, res, columns, fold, None)
         write_history('history', format, Stat.OK)
     except BaseException as e:
         write_history('history', format, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
 
 
-def get_connection_v2():
+def get_connection():
     info = read_info()
     if format == 'table':
         show_database_info(info)
@@ -353,7 +354,7 @@ def get_list_tab_sql(server_type, database_name):
 
 
 def list_tables():
-    conn, conf = get_connection_v2()
+    conn, conf = get_connection()
     if conn is None:
         return
     run_sql(get_list_tab_sql(conf['servertype'], conf['database']), conn, False, [0])
@@ -408,7 +409,7 @@ def print_create_table(server_type, conn, tab_name):
 
 
 def desc_table(tab_name, fold, columns):
-    conn, conf = get_connection_v2()
+    conn, conf = get_connection()
     if conn is None:
         return
 
@@ -435,18 +436,6 @@ def desc_table(tab_name, fold, columns):
     else:
         print_description()
     conn.close()
-
-
-def get_fields_from_sql(sql: str):
-    import re
-    sql = sql.strip().lower()
-    select_back_index = sql.index('select') + 6
-    from_front_index = sql.index('from')
-    res = sql[select_back_index:from_front_index].strip()
-    res_split = re.split('\\s+', res)
-    if res_split[0] == 'top' or '(' in res_split[0]:
-        res = ''.join(res_split[2:])
-    return res
 
 
 def get_max_len(list):
@@ -619,7 +608,11 @@ def deal_bin(res):
                 try:
                     row[index] = str(e, 'utf8')
                 except Exception as ex:
-                    row[index] = str(base64.standard_b64encode(e))
+                    row[index] = str(base64.standard_b64encode(e), 'utf8')
+
+
+def limit_rows_func(res, limit):
+    return res[limit[0]:limit[1]]
 
 
 def before_print(header, res, columns, fold=True):
@@ -629,6 +622,11 @@ def before_print(header, res, columns, fold=True):
     res = [] if res is None else [list(row) for row in res]
     res.insert(0, header if isinstance(header, list) else list(header))
     res = [[line[i] for i in columns] for line in res] if columns else res
+    global limit_rows
+    if limit_rows:
+        header = res.pop(0)
+        res = limit_rows_func(res, limit_rows)
+        res.insert(0, header)
     deal_bin(res)
     res = deal_human(res) if human else res
     res = fold_res(res) if fold else res
@@ -636,7 +634,7 @@ def before_print(header, res, columns, fold=True):
 
 
 def run_one_sql(sql: str, fold=True, columns=None):
-    conn, conf = get_connection_v2()
+    conn, conf = get_connection()
     if conn is None:
         return
     run_sql(sql, conn, fold, columns)
@@ -681,7 +679,7 @@ def print_result_set(header, res, columns, fold, sql):
         def empty_end_func(table_width, total):
             pass
 
-        columns = [i for i in range(len(header))] if colums is None else columns
+        columns = [i for i in range(len(header))] if columns is None else columns
         print_table(header, res, columns, start_func=empty_start_func,
                     after_print_row_func=empty_after_print_row, end_func=empty_end_func)
     elif format == 'table':
@@ -888,9 +886,7 @@ def read_info():
 
 
 def write_info(info):
-    config_dic = {}
-    config_dic['env'] = ENV_TYPE.value
-    config_dic['conf'] = CONF_KEY
+    config_dic = {'env': ENV_TYPE.value, 'conf': CONF_KEY}
     proc_home = get_proc_home()
     file = os.path.join(proc_home, 'config/.db.info')
     with open(os.path.join(proc_home, 'config/.db.info.lock'), mode='w+') as lock:
@@ -941,9 +937,9 @@ def lock_value():
 
 
 def unlock(key):
-    with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w') as lock:
+    with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w') as t_lock_file:
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(t_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as bioe:
             print(ERROR_COLOR.wrap("unlock fail, please retry!"))
             write_history('unlock', '*' * 6, Stat.ERROR)
@@ -963,7 +959,7 @@ def unlock(key):
         else:
             print(ERROR_COLOR.wrap('Incorrect key.'))
             write_history('unlock', key, Stat.ERROR)
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        fcntl.flock(t_lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def lock(key: str):
@@ -1006,8 +1002,9 @@ sql         <sql> [false] [raw] [human] [format] [column index]
             [false], disable fold.
             [raw], disable all color.
             [human], print timestamp in human readable, the premise is that the field contains "time".
-            [format], Print format: text, csv, table, html(2/3/4), markdown, xml, json and sql, the default is table.
-            [column index], print specific columns, example: "0,1,2" or "0-2".
+            [format], Print format: text, csv, table, html, markdown, xml, json and sql, the default is table.
+            [col limit], print specific columns, example: "col[0,1,2]" or "col[0-2]".
+            [row limit], print specific rows, example: "row[0:-1]".
 set         <key=val> set database configuration, example: "env=qa", "conf=main".
 lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
 unlock      <passwd> unlock database configuration.\n''')
@@ -1016,7 +1013,7 @@ unlock      <passwd> unlock database configuration.\n''')
 
 
 def shell():
-    conn, conf = get_connection_v2()
+    conn, conf = get_connection()
     if conn is None:
         return
     val = input('db>')
@@ -1071,7 +1068,7 @@ def load(path):
 
     try:
         if os.path.exists(path):
-            conn, config = get_connection_v2()
+            conn, config = get_connection()
             if conn is None:
                 return
             cur = conn.cursor()
@@ -1117,8 +1114,7 @@ def show_conf():
     head = ['env', 'conf', 'servertype', 'host', 'port', 'database', 'user', 'password', 'charset', 'autocommit']
     for env in dbconf.keys():
         for conf in dbconf[env].keys():
-            new_row = [env]
-            new_row.append(conf)
+            new_row = [env, conf]
             new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
     header, res = before_print(head, print_content, list(range(len(head))), fold=False)
@@ -1134,7 +1130,7 @@ def test():
 def export():
     global format
     format = 'sql'
-    conn, conf = get_connection_v2()
+    conn, conf = get_connection()
     if conn is None:
         return
     tab_list = exe_query(get_list_tab_sql(conf['servertype'], conf['database']), conn)[1]
@@ -1159,26 +1155,30 @@ def export():
 
 def parse_args(args):
     option = args[1].strip().lower() if len(args) > 1 else ''
-    global format, human, export_type
-    colums, fold, export_type, human, format, \
-    set_format, set_human, set_export_type, set_colums, set_fold, set_raw = None, True, 'all', False, 'table' \
-        , False, False, False, False, False, False
+    global format, human, export_type, limit_rows
+    columns, fold, export_type, human, format, \
+    set_format, set_human, set_export_type, set_columns, set_fold, set_raw, set_row_limit, limit_rows = None, True, 'all', False, 'table' \
+        , False, False, False, False, False, False, False, None
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
     if len(args) > parse_start_pos:
         for index in range(parse_start_pos, len(args)):
             p: str = args[index].strip().lower()
+            limit_row_re = re.match("^(row)\[\s*(-?\d+)\s*:\s*(-?\d+)\s*(\])$", p)
+            limit_column_re = re.match("^(col)\[((\s*\d+\s*-\s*\d+\s*)|(\s*(\d+)\s*(,\s*(\d+)\s*)*))(\])$", p)
             if not set_fold and p == 'false':
                 fold, set_fold = False, True
-            elif not set_colums and p.isdigit() or ',' in p:
-                colums = list(map(lambda x: int(x), p.split(',')))
-                set_colums = True
-            elif not set_colums and '-' in p:
-                t = p.split('-')
-                if t[0].isdigit() and t[1].isdigit():
-                    colums = [i for i in range(int(t[0]), int(t[1]) + 1)] if int(t[0]) <= int(t[1]) \
+            elif not set_row_limit and limit_row_re:
+                set_row_limit, limit_rows = True, (int(limit_row_re.group(2)), int(limit_row_re.group(3)))
+            elif not set_columns and limit_column_re:
+                group2 = limit_column_re.group(2).strip()
+                if ',' in group2 or group2.isdigit():
+                    columns = [int(i.strip()) for i in group2.split(',')]
+                else:
+                    t = [int(i.strip()) for i in group2.split('-')]
+                    columns = [i for i in range(int(t[0]), int(t[1]) + 1)] if int(t[0]) <= int(t[1]) \
                         else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
-                set_colums = True
+                set_columns = True
             elif not set_raw and p == 'raw':
                 set_raw = True
                 disable_color()
@@ -1198,12 +1198,12 @@ def parse_args(args):
                 print(ERROR_COLOR.wrap('Invalid param : "{}"'.format(p)))
                 sys.exit(-1)
 
-    return option, colums, fold, option_val
+    return option, columns, fold, option_val
 
 
 if __name__ == '__main__':
     try:
-        opt, colums, fold, option_val = parse_args(sys.argv)
+        opt, columns, fold, option_val = parse_args(sys.argv)
         if opt == 'info' or opt == '':
             print_info()
         elif opt == 'show':
@@ -1213,11 +1213,11 @@ if __name__ == '__main__':
         elif opt == 'hist' or opt == 'history':
             show_history(fold)
         elif opt == 'desc':
-            desc_table(option_val, fold, colums)
+            desc_table(option_val, fold, columns)
         elif opt == 'sql':
-            run_one_sql(option_val, fold, colums)
+            run_one_sql(option_val, fold, columns)
         elif opt == 'scan':
-            scan_table(option_val, fold, colums)
+            scan_table(option_val, fold, columns)
         elif opt == 'set':
             set_info(option_val)
         elif opt == 'lock':
@@ -1235,10 +1235,8 @@ if __name__ == '__main__':
         elif opt == 'test':
             test()
         else:
-            print(ERROR_COLOR.wrap("Invalid operation!!!"))
+            print(ERROR_COLOR.wrap("Invalid operation !"))
             print_usage(error_condition=True)
     except Exception as e:
         print(ERROR_COLOR.wrap(e))
-        import traceback
-
-        traceback.print_exception(chain=e)
+        traceback.print_exc(chain=e)
