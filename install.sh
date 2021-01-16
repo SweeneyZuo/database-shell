@@ -22,6 +22,10 @@ if [ -e .git ];then
   rm -rf .git
 fi
 
+if [ -e .idea ];then
+  rm -rf .idea
+fi
+
 if [ ! -e hist ]; then
   mkdir hist
 fi
@@ -29,7 +33,7 @@ fi
 mv ./config/.db.info.template ./config/.db.info
 
 # compile
-python compiledb.py
+python3 compiledb.py
 
 proc_home=`pwd`
 
@@ -37,7 +41,7 @@ proc_home=`pwd`
 
 echo """
 #!/usr/bin/env bash
-python ${proc_home}/database.pyc \"\$@\"
+python3 ${proc_home}/database.pyc \"\$@\"
 """ > db
 
 chmod +x db
@@ -54,12 +58,12 @@ else
 fi
 
 # delete py files
-rm database.py compiledb.py test.py
+rm database.py compiledb.py test.py .gitignore
 # delete sh files
 rm install.sh
 # install python env
-pip install pymysql
-pip install pymssql
+pip3 install pymysql
+pip3 install pymssql
 
 # remove \r\n
 dos2unix *

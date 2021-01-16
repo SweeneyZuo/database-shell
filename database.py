@@ -150,7 +150,7 @@ def show_database_info(info):
                   conf.get('user', ''),
                   conf.get('password', ''),
                   conf.get('database', ''),
-                  is_locked()]], [i for i in range(len(header))],
+                  is_locked()]],
                 split_row_char='-', start_func=print_start_info, end_func=print_end_info)
 
 
@@ -227,7 +227,7 @@ def get_connection():
         return None, config
 
 
-def get_tab_name_from_sql(sql: str):
+def get_tab_name_from_sql(src_sql: str):
     """
      提取sql中的表名，sql语句不能有嵌套结构。
     """
@@ -235,9 +235,11 @@ def get_tab_name_from_sql(sql: str):
     def deal_tab_name(tab_name: str):
         if '.' in tab_name:
             tab_name = tab_name.split('.')[-1]
-        return tab_name.replace('[', '').replace(']', '')
+        tab_name = tab_name.replace('[', '').replace(']', '')
+        b_index = sql.index(tab_name)
+        return src_sql[b_index:b_index + len(tab_name)]
 
-    sql = sql.strip().lower()
+    sql = src_sql.strip().lower()
     if (sql.startswith('select') or sql.startswith('delete')) and 'from' in sql:
         return deal_tab_name(re.split('\\s+', sql[sql.index('from') + 4:].strip())[0])
     elif sql.startswith('update'):
@@ -327,9 +329,9 @@ def print_row_format(row, head_length,
         if index == 0:
             print('{} '.format(split_char), end='')
         print_by_align(e_str, space_num, align_type=align_list[index], color=color, end_str=end_str)
-        if index == len(row) - 1:
-            # 行尾
-            print()
+    else:
+        # 行尾
+        print()
 
 
 def get_max_length_each_fields(rows, func):
@@ -481,72 +483,68 @@ def print_header_with_html(header):
     return l
 
 
+def deal_html_elem(e):
+    e = "" if e is None else str(e)
+    return html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
+
+
 def print_html3(header, res):
     print_html_head('html1.head')
-    l = print_header_with_html(header)
+    print_header_with_html(header)
     for row in res:
         for index, e in enumerate(row):
             if index == 0:
                 print("<tr>", end="")
-            e = "" if e is None else e
-            e = html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
-            print("<td>{}</td>".format(e), end="")
-            if index == l:
-                print("</tr>")
+            print("<td>{}</td>".format(deal_html_elem(e)), end="")
+        else:
+            print("</tr>")
     print("</table>\n</body>\n</html>")
 
 
 def print_html2(header, res):
     print_html_head('html2.head')
-    l = print_header_with_html(header)
+    print_header_with_html(header)
     for row_num, row in enumerate(res):
         for index, e in enumerate(row):
             if index == 0:
                 print("<tr>", end="") if row_num % 2 == 0 else print('<tr class="alt">', end="")
-            e = "" if e is None else e
-            e = html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
-            print("<td>{}</td>".format(e), end="")
-            if index == l:
-                print("</tr>")
+            print("<td>{}</td>".format(deal_html_elem(e)), end="")
+        else:
+            print("</tr>")
     print("</table>\n</body>\n</html>")
 
 
 def print_html(header, res):
     print_html_head('html3.head')
-    l = print_header_with_html(header)
+    print_header_with_html(header)
     for row in res:
         for index, e in enumerate(row):
             if index == 0:
-                print(
-                    '<tr onmouseover="this.style.backgroundColor=\'#ffff66\';" onmouseout="this.style.backgroundColor=\'#d4e3e5\';">')
-            e = "" if e is None else e
-            e = html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
-            print("<td>{}</td>".format(e), end="")
-            if index == l:
-                print("</tr>")
+                s = '<tr onmouseover="this.style.backgroundColor=\'#ffff66\';"onmouseout="this.style.backgroundColor=\'#d4e3e5\';">'
+                print(s)
+            print("<td>{}</td>".format(deal_html_elem(e)), end="")
+        else:
+            print("</tr>")
     print("</table>")
 
 
 def print_html4(header, res):
     print_html_head('html4.head')
-    l = len(header) - 1
     for index, head in enumerate(header):
         if index == 0:
             print("<thead><tr>", end="")
         head = "" if head is None else head
         print("<th>{}</th>".format(head), end="")
-        if index == l:
-            print("</tr></thead>")
+    else:
+        print("</tr></thead>")
     print('<tbody>')
     for row in res:
         for index, e in enumerate(row):
             if index == 0:
                 print('<tr>', end='')
-            e = "" if e is None else e
-            e = html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
-            print("<td>{}</td>".format(e), end="")
-            if index == l:
-                print("</tr>")
+            print("<td>{}</td>".format(deal_html_elem(e)), end="")
+        else:
+            print("</tr>")
     print("</tbody>\n</table>")
 
 
@@ -588,8 +586,7 @@ def print_markdown(header, res):
     for row in res:
         print('\n|', end='')
         for e in row:
-            e = "" if e is None else str(e)
-            print(html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>'), end="|")
+            print(deal_html_elem(e), end="|")
 
 
 def run_sql(sql: str, conn, fold=True, columns=None):
@@ -679,11 +676,10 @@ def print_result_set(header, res, columns, fold, sql):
         def empty_end_func(table_width, total):
             pass
 
-        columns = [i for i in range(len(header))] if columns is None else columns
-        print_table(header, res, columns, start_func=empty_start_func,
+        print_table(header, res, start_func=empty_start_func,
                     after_print_row_func=empty_after_print_row, end_func=empty_end_func)
     elif format == 'table':
-        print_table(header, res, columns)
+        print_table(header, res)
     else:
         print(ERROR_COLOR.wrap('Invalid print format : "{}"'.format(format)))
 
@@ -729,19 +725,19 @@ def print_insert_sql(header, res, tab_name):
         return
 
     def _case_for_sql(row):
-        res = []
+        _res = []
         for e in row:
             if e is None:
-                res.append("NULL")
+                _res.append("NULL")
             elif isinstance(e, int) or isinstance(e, float):
-                res.append(str(e))
+                _res.append(str(e))
             elif isinstance(e, str):
                 e = e.replace("'", "''")
-                res.append("'{}'".format(e))
+                _res.append("'{}'".format(e))
             else:
                 print(WARN_COLOR.wrap("TYPE WARN:{}".format(type(e))))
-                res.append("'{}'".format(e))
-        return res
+                _res.append("'{}'".format(e))
+        return _res
 
     header = list(map(lambda x: str(x), header))
     template = "INSERT INTO {} ({}) VALUES ({});".format(tab_name, ",".join(header), "{}")
@@ -762,24 +758,21 @@ def default_after_print_row(max_row_length, split_char, table_width):
         print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
 
 
-def print_table(header, res, columns, split_row_char='-', start_func=default_print_start,
+def print_table(header, res, split_row_char='-', start_func=default_print_start,
                 after_print_row_func=default_after_print_row, end_func=default_print_end):
     def _get_align_list(res_list):
-        align_list = [Align.ALIGN_LEFT for i in range(len(res_list[0]) if len(res_list) > 0 else 0)]
-        for col_index in range(len(align_list)):
+        _align_list = [Align.ALIGN_LEFT for i in range(len(res_list[0]) if len(res_list) > 0 else 0)]
+        for col_index in range(len(_align_list)):
             for row in res_list:
                 # 数字采用右对齐
                 if isdigit(row[col_index]):
-                    align_list[col_index] = Align.ALIGN_RIGHT
+                    _align_list[col_index] = Align.ALIGN_RIGHT
                     break
-        return align_list
+        return _align_list
 
     def _deal_res(res):
         return [[e.replace('\r', '\\r').replace('\n', '\\n') if isinstance(e, str) else e for e in row] for row in res]
 
-    # 表头加上index
-    header = ['{}({})'.format(str(i), str(index)) for index, i in
-              enumerate(header)] if not columns and format == 'table' else list(header)
     res.insert(0, header)
     res = _deal_res(res)
     max_length_each_fields = get_max_length_each_fields(res, chinese_length_str)
@@ -789,10 +782,11 @@ def print_table(header, res, columns, split_row_char='-', start_func=default_pri
     table_width = 1 + max_row_length + 3 * len(max_length_each_fields)
     header = res.pop(0)
     space_list_down = [split_row_char * i for i in max_length_each_fields]
+    top_line = space_list_down
     start_func(table_width)
     align_list = _get_align_list(res)
     # 打印表格的上顶线
-    print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
+    print_row_format(top_line, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
     for index, r in enumerate(res):
         if index == 0:
             # 打印HEADER部分
@@ -1017,11 +1011,12 @@ def shell():
     if conn is None:
         return
     val = input('db>')
-    while val != 'quit':
+    while val not in {'quit', '!q', 'exit'}:
         if not (val == '' or val.strip() == ''):
             run_sql(val, conn)
         val = input('db>')
     conn.close()
+    print('Bye')
     write_history('shell', '', Stat.OK)
 
 
@@ -1118,7 +1113,7 @@ def show_conf():
             new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
     header, res = before_print(head, print_content, list(range(len(head))), fold=False)
-    print_table(header, res, list(range(len(head))))
+    print_table(header, res)
     write_history('conf', '', Stat.OK)
 
 
@@ -1136,11 +1131,11 @@ def export():
     tab_list = exe_query(get_list_tab_sql(conf['servertype'], conf['database']), conn)[1]
     try:
         for tab in tab_list:
-            if export_type in ('all', 'ddl'):
+            if export_type in {'all', 'ddl'}:
                 print('--\n-- Table structure for table "{}"\n--\n'.format(tab[0]))
                 print_create_table(conf['servertype'], conn, tab[0])
                 print('\n')
-            if export_type in ('all', 'data'):
+            if export_type in {'all', 'data'}:
                 print('--\n-- Dumping data for table "{}"\n--\n'.format(tab[0]))
                 sql = 'select * from {}'.format(tab[0])
                 run_sql(sql, conn, False)
@@ -1182,16 +1177,16 @@ def parse_args(args):
             elif not set_raw and p == 'raw':
                 set_raw = True
                 disable_color()
-            elif not set_format and option in ('sql', 'scan', 'desc', 'hist', 'history') and \
-                    p in ('text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'):
+            elif not set_format and option in {'sql', 'scan', 'desc', 'hist', 'history'} and \
+                    p in {'text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'}:
                 disable_color()
                 format, fold, set_format = p, False, True
-            elif not set_export_type and option == 'export' and p in ('ddl', 'data', 'all'):
+            elif not set_export_type and option == 'export' and p in {'ddl', 'data', 'all'}:
                 disable_color()
                 export_type, fold, set_export_type = p, False, True
             elif not set_human and p == 'human':
                 human, set_human = True, True
-            elif index == 2 and option in ('sql', 'scan', 'desc', 'load', 'set', 'lock', 'unlock'):
+            elif index == 2 and option in {'sql', 'scan', 'desc', 'load', 'set', 'lock', 'unlock'}:
                 # 第3个参数可以自定义输入的操作
                 continue
             else:
@@ -1204,13 +1199,13 @@ def parse_args(args):
 if __name__ == '__main__':
     try:
         opt, columns, fold, option_val = parse_args(sys.argv)
-        if opt == 'info' or opt == '':
+        if opt in {'info', ''}:
             print_info()
         elif opt == 'show':
             list_tables()
         elif opt == 'conf':
             show_conf()
-        elif opt == 'hist' or opt == 'history':
+        elif opt in {'hist', 'history'}:
             show_history(fold)
         elif opt == 'desc':
             desc_table(option_val, fold, columns)
