@@ -193,7 +193,7 @@ def show_history(fold):
     try:
         table_head = ['time', 'option', 'value', 'stat']
         res = [list(map(lambda cell: cell.replace("\n", ""), line.split('|'))) for line in read_history()]
-        print_result_set(table_head, res, None, fold, None)
+        print_result_set(table_head, res, columns, fold, None)
         write_history('history', format, Stat.OK)
     except BaseException as e:
         write_history('history', format, Stat.ERROR)
@@ -328,9 +328,9 @@ def print_row_format(row, head_length,
         if index == 0:
             print('{} '.format(split_char), end='')
         print_by_align(e_str, space_num, align_type=align_list[index], color=color, end_str=end_str)
-    else:
-        # 行尾
-        print()
+        if index == len(row) - 1:
+            # 行尾
+            print()
 
 
 def get_max_length_each_fields(rows, func):
@@ -430,7 +430,7 @@ def desc_table(tab_name, fold, columns):
                 row[1] = '{}({})'.format(row[1],
                                          'max' if conf['servertype'] == 'sqlserver' and row[2] == -1 else row[2])
             row.pop(2)
-        print_result_set(header, res, columns if columns else [i for i in range(len(header))], fold, sql)
+        print_result_set(header, res, columns, fold, sql)
 
     if format == 'sql':
         print_create_table(conf['servertype'], conn, tab_name)
@@ -577,11 +577,8 @@ def print_markdown(header, res):
     print('|', end='')
     l = len(header)
     for head in header:
-        head = "" if head is None else str(head)
-        print(html.escape(head), end="|")
-    print('\n|', end='')
-    for i in range(l):
-        print(':{}:'.format('-' * 10), end='|')
+        print(deal_html_elem(head), end="|")
+    print('\n|{}'.format(':{}:|'.format('-' * 10) * l), end='')
     for row in res:
         print('\n|', end='')
         for e in row:
@@ -1111,7 +1108,7 @@ def show_conf():
             new_row = [env, conf]
             new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
-    header, res = before_print(head, print_content, list(range(len(head))), fold=False)
+    header, res = before_print(head, print_content, columns, fold=False)
     print_table(header, res)
     write_history('conf', '', Stat.OK)
 
@@ -1148,6 +1145,10 @@ def export():
 
 
 def parse_args(args):
+    def _error_param_exit(param):
+        print(ERROR_COLOR.wrap('Invalid param : "{}"'.format(param)))
+        sys.exit(-1)
+
     option = args[1].strip().lower() if len(args) > 1 else ''
     global format, human, export_type, limit_rows
     columns, fold, export_type, human, format, \
@@ -1160,7 +1161,9 @@ def parse_args(args):
             p: str = args[index].strip().lower()
             limit_row_re = re.match("^(row)\[\s*(-?\d+)\s*:\s*(-?\d+)\s*(\])$", p)
             limit_column_re = re.match("^(col)\[((\s*\d+\s*-\s*\d+\s*)|(\s*(\d+)\s*(,\s*(\d+)\s*)*))(\])$", p)
-            if not set_fold and p == 'false':
+            if option in {'info', 'shell', 'help', 'test'}:
+                _error_param_exit(p)
+            elif not set_fold and p == 'false':
                 fold, set_fold = False, True
             elif not set_row_limit and limit_row_re:
                 set_row_limit, limit_rows = True, (int(limit_row_re.group(2)), int(limit_row_re.group(3)))
@@ -1191,8 +1194,7 @@ def parse_args(args):
             elif not set_format and option in {'sql', 'scan', 'desc', 'hist', 'history'} and p == 'table':
                 set_format, format = True, 'table'
             else:
-                print(ERROR_COLOR.wrap('Invalid param : "{}"'.format(p)))
-                sys.exit(-1)
+                _error_param_exit(p)
 
     return option, columns, fold, option_val
 
