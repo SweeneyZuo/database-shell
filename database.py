@@ -460,6 +460,7 @@ def fold_res(res):
 def print_json(header, res):
     global human
     for row in res:
+        row = [e if isdigit(e) or isinstance(e, str) else str(e) for e in row]
         print(json.dumps(dict(zip(header, row)), indent=2, ensure_ascii=False)) \
             if human else print(json.dumps(dict(zip(header, row)), ensure_ascii=False))
 
