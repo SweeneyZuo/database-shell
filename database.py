@@ -34,6 +34,7 @@ class EnvType(Enum):
 DEFAULT_CONF = 'default'
 ENV_TYPE = EnvType.DEV
 CONF_KEY = DEFAULT_CONF
+PRINT_FORMAT_SET = {'table', 'text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'}
 
 
 class Align(Enum):
@@ -320,7 +321,7 @@ def print_row_format(row, head_length,
                      align_list=None,
                      color=Color.NO_COLOR, split_char='|'):
     end_str = ' {} '.format(split_char)
-    if align_list is None:
+    if not align_list:
         align_list = [Align.ALIGN_CENTER for i in range(len(row))]
     for index, e in enumerate(row):
         e_str = 'NULL' if e is None else str(e)
@@ -409,33 +410,34 @@ def print_create_table(server_type, conn, tab_name):
         print_create_table_sqlserver()
 
 
+def print_table_description(conf, conn, tab_name, columns, fold):
+    sql = "select COLUMN_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
+          "from information_schema.columns where table_schema = '{}' and table_name = '{}' " \
+        .format(conf['database'], tab_name)
+    header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
+    if conf['servertype'] == 'sqlserver':
+        sql = "SELECT col.name AS name, t.name AS type, isc.CHARACTER_MAXIMUM_LENGTH , CASE WHEN col.isnullable = 1 THEN 'YES' ELSE 'NO' END AS 允许空 , CASE  WHEN EXISTS ( SELECT 1 FROM dbo.sysindexes si INNER JOIN dbo.sysindexkeys sik ON si.id = sik.id AND si.indid = sik.indid INNER JOIN dbo.syscolumns sc ON sc.id = sik.id AND sc.colid = sik.colid INNER JOIN dbo.sysobjects so ON so.name = si.name AND so.xtype = 'PK' WHERE sc.id = col.id AND sc.colid = col.colid ) THEN 'YES' ELSE '' END AS 是否主键, comm.text AS 默认值 , CASE  WHEN COLUMNPROPERTY(col.id, col.name, 'IsIdentity') = 1 THEN 'auto_increment' ELSE '' END AS Extra, ISNULL(ep.value, '') AS 列说明 FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype = t.xusertype INNER JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN dbo.syscomments comm ON col.cdefault = comm.id LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' LEFT JOIN sys.extended_properties epTwo ON obj.id = epTwo.major_id AND epTwo.minor_id = 0 AND epTwo.name = 'MS_Description' LEFT JOIN information_schema.columns isc ON obj.name = isc.TABLE_NAME AND col.name = isc.COLUMN_NAME WHERE isc.TABLE_CATALOG = '{}' AND obj.name = '{}' ORDER BY col.colorder" \
+            .format(conf['database'], tab_name)
+        header = ['Name', 'Type', 'Nullable', 'Is_Primary', 'Default', 'Extra', 'Comment']
+    description, res = exe_query(sql, conn)
+    res = [list(row) for row in res]
+    for row in res:
+        if row[2]:
+            row[1] = '{}({})'.format(row[1],
+                                     'max' if conf['servertype'] == 'sqlserver' and row[2] == -1 else row[2])
+        row.pop(2)
+    print_result_set(header, res, columns, fold, sql)
+
+
 def desc_table(tab_name, fold, columns):
     conn, conf = get_connection()
     if conn is None:
         return
 
-    def print_description():
-        sql = "select COLUMN_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
-              "from information_schema.columns where table_schema = '{}' and table_name = '{}' " \
-            .format(conf['database'], tab_name)
-        header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
-        if conf['servertype'] == 'sqlserver':
-            sql = "SELECT col.name AS name, t.name AS type, isc.CHARACTER_MAXIMUM_LENGTH , CASE WHEN col.isnullable = 1 THEN 'YES' ELSE 'NO' END AS 允许空 , CASE  WHEN EXISTS ( SELECT 1 FROM dbo.sysindexes si INNER JOIN dbo.sysindexkeys sik ON si.id = sik.id AND si.indid = sik.indid INNER JOIN dbo.syscolumns sc ON sc.id = sik.id AND sc.colid = sik.colid INNER JOIN dbo.sysobjects so ON so.name = si.name AND so.xtype = 'PK' WHERE sc.id = col.id AND sc.colid = col.colid ) THEN 'YES' ELSE '' END AS 是否主键, comm.text AS 默认值 , CASE  WHEN COLUMNPROPERTY(col.id, col.name, 'IsIdentity') = 1 THEN 'auto_increment' ELSE '' END AS Extra, ISNULL(ep.value, '') AS 列说明 FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype = t.xusertype INNER JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN dbo.syscomments comm ON col.cdefault = comm.id LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' LEFT JOIN sys.extended_properties epTwo ON obj.id = epTwo.major_id AND epTwo.minor_id = 0 AND epTwo.name = 'MS_Description' LEFT JOIN information_schema.columns isc ON obj.name = isc.TABLE_NAME AND col.name = isc.COLUMN_NAME WHERE isc.TABLE_CATALOG = '{}' AND obj.name = '{}' ORDER BY col.colorder" \
-                .format(conf['database'], tab_name)
-            header = ['Name', 'Type', 'Nullable', 'Is_Primary', 'Default', 'Extra', 'Comment']
-        description, res = exe_query(sql, conn)
-        res = [list(row) for row in res]
-        for row in res:
-            if row[2]:
-                row[1] = '{}({})'.format(row[1],
-                                         'max' if conf['servertype'] == 'sqlserver' and row[2] == -1 else row[2])
-            row.pop(2)
-        print_result_set(header, res, columns, fold, sql)
-
     if format == 'sql':
         print_create_table(conf['servertype'], conn, tab_name)
     else:
-        print_description()
+        print_table_description(conf, conn, tab_name, columns, fold)
     conn.close()
 
 
@@ -575,15 +577,16 @@ def print_csv(header, res, split_char=','):
 
 
 def print_markdown(header, res):
-    print('|', end='')
-    l = len(header)
-    for head in header:
-        print(deal_html_elem(head), end="|")
-    print('\n|{}'.format(':{}:|'.format('-' * 10) * l), end='')
-    for row in res:
-        print('\n|', end='')
-        for e in row:
-            print(deal_html_elem(e), end="|")
+    def _deal_res(res):
+        return [[deal_html_elem(e) for e in row] for row in res]
+
+    res.insert(0, header)
+    res = _deal_res(res)
+    max_length_each_fields = get_max_length_each_fields(res, chinese_length_str)
+    res.insert(1, ['-' * l for l in max_length_each_fields])
+    align_list = [Align.ALIGN_LEFT for i in range(len(header))]
+    for index, r in enumerate(res):
+        print_row_format(r, max_length_each_fields, align_list=align_list, color=Color.NO_COLOR)
 
 
 def run_sql(sql: str, conn, fold=True, columns=None):
@@ -779,20 +782,17 @@ def print_table(header, res, split_row_char='-', start_func=default_print_start,
     table_width = 1 + max_row_length + 3 * len(max_length_each_fields)
     header = res.pop(0)
     space_list_down = [split_row_char * i for i in max_length_each_fields]
-    top_line = space_list_down
-    start_func(table_width)
     align_list = _get_align_list(res)
+    start_func(table_width)
     # 打印表格的上顶线
-    print_row_format(top_line, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
-    for index, r in enumerate(res):
-        if index == 0:
-            # 打印HEADER部分
-            print_row_format(header, max_length_each_fields, align_list=align_list,
-                             color=TABLE_HEAD_COLOR)
-            # 打印HEADER和DATA之间的分割线
-            print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
+    print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
+    # 打印HEADER部分
+    print_row_format(header, max_length_each_fields, align_list=align_list, color=TABLE_HEAD_COLOR)
+    # 打印HEADER和DATA之间的分割线
+    print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
+    for row in res:
         # 打印DATA部分
-        print_row_format(r, max_length_each_fields, align_list=align_list, color=DATA_COLOR)
+        print_row_format(row, max_length_each_fields, align_list=align_list, color=DATA_COLOR)
         after_print_row_func(max_row_length, split_row_char, table_width)
     # 打印表格的下底线
     print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
@@ -1120,8 +1120,6 @@ def test():
 
 
 def export():
-    global format
-    format = 'sql'
     conn, conf = get_connection()
     if conn is None:
         return
@@ -1130,7 +1128,8 @@ def export():
         for tab in tab_list:
             if export_type in {'all', 'ddl'}:
                 print('--\n-- Table structure for table "{}"\n--\n'.format(tab[0]))
-                print_create_table(conf['servertype'], conn, tab[0])
+                print_create_table(conf['servertype'], conn, tab[0]) if format == 'sql' else \
+                    print_table_description(conf, conn, tab[0], None, False)
                 print('\n')
             if export_type in {'all', 'data'}:
                 print('--\n-- Dumping data for table "{}"\n--\n'.format(tab[0]))
@@ -1162,13 +1161,16 @@ def parse_args(args):
             p: str = args[index].strip().lower()
             limit_row_re = re.match("^(row)\[\s*(-?\d+)\s*:\s*(-?\d+)\s*(\])$", p)
             limit_column_re = re.match("^(col)\[((\s*\d+\s*-\s*\d+\s*)|(\s*(\d+)\s*(,\s*(\d+)\s*)*))(\])$", p)
-            if option in {'info', 'shell', 'help', 'test'}:
+            if option in {'info', 'shell', 'help', 'test', 'show'}:
                 _error_param_exit(p)
+            elif index == 2 and option in {'sql', 'scan', 'desc', 'load', 'set', 'lock', 'unlock'}:
+                # 第3个参数可以自定义输入的操作
+                continue
             elif not set_fold and p == 'false':
                 fold, set_fold = False, True
-            elif not set_row_limit and limit_row_re:
+            elif not set_row_limit and option not in {'export'} and limit_row_re:
                 set_row_limit, limit_rows = True, (int(limit_row_re.group(2)), int(limit_row_re.group(3)))
-            elif not set_columns and limit_column_re:
+            elif not set_columns and option not in {'export'} and limit_column_re:
                 group2 = limit_column_re.group(2).strip()
                 if ',' in group2 or group2.isdigit():
                     columns = [int(i.strip()) for i in group2.split(',')]
@@ -1177,23 +1179,21 @@ def parse_args(args):
                     columns = [i for i in range(int(t[0]), int(t[1]) + 1)] if int(t[0]) <= int(t[1]) \
                         else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
                 set_columns = True
-            elif not set_raw and p == 'raw':
+            elif not set_format and option in {'export', 'sql', 'scan', 'desc', 'hist', 'history'} and \
+                    p in PRINT_FORMAT_SET:
+                if option != 'table':
+                    disable_color()
+                else:
+                    fold = False
+                format, set_format = p, True
+            elif not set_raw and format == 'table' and p == 'raw':
                 set_raw = True
                 disable_color()
-            elif not set_format and option in {'sql', 'scan', 'desc', 'hist', 'history'} and \
-                    p in {'text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'}:
-                disable_color()
-                format, fold, set_format = p, False, True
             elif not set_export_type and option == 'export' and p in {'ddl', 'data', 'all'}:
                 disable_color()
                 export_type, fold, set_export_type = p, False, True
             elif not set_human and p == 'human':
                 human, set_human = True, True
-            elif index == 2 and option in {'sql', 'scan', 'desc', 'load', 'set', 'lock', 'unlock'}:
-                # 第3个参数可以自定义输入的操作
-                continue
-            elif not set_format and option in {'sql', 'scan', 'desc', 'hist', 'history'} and p == 'table':
-                set_format, format = True, 'table'
             else:
                 _error_param_exit(p)
 
