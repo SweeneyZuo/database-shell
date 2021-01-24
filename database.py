@@ -433,12 +433,21 @@ def desc_table(tab_name, fold, columns):
     conn, conf = get_connection()
     if conn is None:
         return
-
-    if format == 'sql':
-        print_create_table(conf['servertype'], conn, tab_name)
-    else:
-        print_table_description(conf, conn, tab_name, columns, fold)
+    print_table_schema(conf, conn, tab_name, fold, columns)
     conn.close()
+
+
+def print_table_schema(conf, conn, tab_name, fold, columns, attach_sql=False):
+    if format != 'sql':
+        print_table_description(conf, conn, tab_name, columns, fold)
+        if not attach_sql:
+            return
+    if format in {'sql', 'markdown'}:
+        if format == 'markdown':
+            print('\n```sql\n', end='')
+        print_create_table(conf['servertype'], conn, tab_name)
+        if format == 'markdown':
+            print('```\n', end='')
 
 
 def get_max_len(list):
@@ -877,15 +886,12 @@ def read_info():
 
 
 def write_info(info):
-    config_dic = {'env': ENV_TYPE.value, 'conf': CONF_KEY}
     proc_home = get_proc_home()
     file = os.path.join(proc_home, 'config/.db.info')
     with open(os.path.join(proc_home, 'config/.db.info.lock'), mode='w+') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='w+', encoding='UTF8') as info_file:
-            info_file.write(json.dumps(config_dic, indent=2))
-        with open(os.path.join(proc_home, 'config/.db.info'), mode='w+', encoding='UTF8') as dbconf:
-            dbconf.write(json.dumps(info, indent=2))
+            info_file.write(json.dumps(info, indent=2))
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
@@ -1114,6 +1120,22 @@ def show_conf():
     write_history('conf', '', Stat.OK)
 
 
+def get_print_template_with_format():
+    if format == 'markdown':
+        return '>\n> {}\n>\n\n'
+    elif format in {'html', 'html2', 'html3', 'html4'}:
+        return '<h1>{}</h1>\n'
+    else:
+        return '--\n-- {}\n--\n\n'
+
+
+def get_print_split_line_with_format():
+    if format == 'markdown':
+        return '\n---\n'
+    else:
+        return '\n'
+
+
 def test():
     print('test', end='')
     write_history('test', '', Stat.OK)
@@ -1123,19 +1145,20 @@ def export():
     conn, conf = get_connection()
     if conn is None:
         return
-    tab_list = exe_query(get_list_tab_sql(conf['servertype'], conf['database']), conn)[1]
     try:
+        tab_list = exe_query(get_list_tab_sql(conf['servertype'], conf['database']), conn)[1]
+        split_line = get_print_split_line_with_format()
+        print_template = get_print_template_with_format()
         for tab in tab_list:
             if export_type in {'all', 'ddl'}:
-                print('--\n-- Table structure for table "{}"\n--\n'.format(tab[0]))
-                print_create_table(conf['servertype'], conn, tab[0]) if format == 'sql' else \
-                    print_table_description(conf, conn, tab[0], None, False)
-                print('\n')
+                print(print_template.format('Table structure for table "{}"').format(tab[0]))
+                print_table_schema(conf, conn, tab[0], fold, columns, export_type == 'ddl')
+                print(split_line)
             if export_type in {'all', 'data'}:
-                print('--\n-- Dumping data for table "{}"\n--\n'.format(tab[0]))
+                print(print_template.format('Dumping data for table "{}"').format(tab[0]), end='')
                 sql = 'select * from {}'.format(tab[0])
                 run_sql(sql, conn, False)
-                print('\n')
+                print(split_line)
         write_history('export', export_type, Stat.OK)
     except BaseException as e:
         write_history('export', export_type, Stat.ERROR)
