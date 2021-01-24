@@ -411,7 +411,7 @@ def print_create_table(server_type, conn, tab_name):
 
 
 def print_table_description(conf, conn, tab_name, columns, fold):
-    sql = "select COLUMN_NAME,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
+    sql = "select COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
           "from information_schema.columns where table_schema = '{}' and table_name = '{}' " \
         .format(conf['database'], tab_name)
     header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
@@ -421,11 +421,12 @@ def print_table_description(conf, conn, tab_name, columns, fold):
         header = ['Name', 'Type', 'Nullable', 'Is_Primary', 'Default', 'Extra', 'Comment']
     description, res = exe_query(sql, conn)
     res = [list(row) for row in res]
-    for row in res:
-        if row[2]:
-            row[1] = '{}({})'.format(row[1],
-                                     'max' if conf['servertype'] == 'sqlserver' and row[2] == -1 else row[2])
-        row.pop(2)
+    if conf['servertype'] == 'sqlserver':
+        for row in res:
+            if row[2]:
+                row[1] = '{}({})'.format(row[1],
+                                         'max' if row[2] == -1 else row[2])
+            row.pop(2)
     print_result_set(header, res, columns, fold, sql)
 
 
