@@ -16,6 +16,46 @@ import traceback
 from enum import Enum
 from datetime import datetime
 
+widths = [
+    (126, 1),
+    (159, 0),
+    (687, 1),
+    (710, 0),
+    (711, 1),
+    (727, 0),
+    (733, 1),
+    (879, 0),
+    (1154, 1),
+    (1161, 0),
+    (4347, 1),
+    (4447, 2),
+    (7467, 1),
+    (7521, 0),
+    (8369, 1),
+    (8426, 0),
+    (9000, 1),
+    (9002, 2),
+    (11021, 1),
+    (12350, 2),
+    (12351, 1),
+    (12438, 2),
+    (12442, 0),
+    (19893, 2),
+    (19967, 1),
+    (55203, 2),
+    (63743, 1),
+    (64106, 2),
+    (65039, 1),
+    (65059, 0),
+    (65131, 2),
+    (65279, 1),
+    (65376, 2),
+    (65500, 1),
+    (65510, 2),
+    (120831, 1),
+    (262141, 2),
+    (1114109, 1),
+]
 
 class DatabaseType(Enum):
     SQLSERVER = 'sqlserver'
@@ -288,6 +328,16 @@ def exe_no_query(sql, conn):
         print(ERROR_COLOR.wrap(e))
     return effect_rows, description, res
 
+def calc_char_width(char):
+    char_ord = ord(char)
+    global widths
+    if char_ord == 0xe or char_ord == 0xf:
+        return 0
+    for num, wid in widths:
+        if char_ord <= num:
+            return wid
+    return 1
+
 
 def chinese_length_str(obj):
     l = 0
@@ -295,7 +345,7 @@ def chinese_length_str(obj):
     str_obj = 'NULL' if obj is None else str(obj)
     color_len = len(FOLD_COLOR.wrap('')) if str_obj.endswith(fold_color_str) else 0
     for char in str_obj:
-        l = l + 2 if ('\u4e00' <= char <= '\u9fff') or ('\uFF01' <= char <= '\uFF5E') else l + 1
+        l += calc_char_width(char)
     return l - color_len
 
 
@@ -381,7 +431,7 @@ def print_create_table(server_type, conn, tab_name):
         for index, (row, row2) in enumerate(zip(res, res2)):
             colum_name = row[3]
             data_type = row[7] if row2[5] in ('ntext',) else row2[5]
-            print("  [{}] {}".format(colum_name, data_type), end="")
+            print("  {} {}".format(colum_name, data_type), end="")
             if row[8] is not None and data_type not in ('text',):
                 print("({})".format('max' if row[8] == -1 else row[8]), end="")
             elif data_type in ('decimal', 'numeric'):
@@ -440,7 +490,7 @@ def desc_table(tab_name, fold, columns):
 
 def print_table_schema(conf, conn, tab_name, fold, columns, attach_sql=False):
     if format != 'sql':
-        print_table_description(conf, conn, tab_name, columns, fold)
+        print_table_description(conf, conn, tab_name, columns, False)
         if not attach_sql:
             return
     if format in {'sql', 'markdown'}:
