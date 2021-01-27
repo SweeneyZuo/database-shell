@@ -431,7 +431,7 @@ def print_create_table(server_type, conn, tab_name):
         for index, (row, row2) in enumerate(zip(res, res2)):
             colum_name = row[3]
             data_type = row[7] if row2[5] in ('ntext',) else row2[5]
-            print("  {} {}".format(colum_name, data_type), end="")
+            print("  [{}] {}".format(colum_name, data_type), end="")
             if row[8] is not None and data_type not in ('text',):
                 print("({})".format('max' if row[8] == -1 else row[8]), end="")
             elif data_type in ('decimal', 'numeric'):
@@ -466,14 +466,14 @@ def print_table_description(conf, conn, tab_name, columns, fold):
         .format(conf['database'], tab_name)
     header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
     if conf['servertype'] == 'sqlserver':
-        sql = "SELECT col.name AS name, t.name AS type, isc.CHARACTER_MAXIMUM_LENGTH , CASE WHEN col.isnullable = 1 THEN 'YES' ELSE 'NO' END AS 允许空 , CASE  WHEN EXISTS ( SELECT 1 FROM dbo.sysindexes si INNER JOIN dbo.sysindexkeys sik ON si.id = sik.id AND si.indid = sik.indid INNER JOIN dbo.syscolumns sc ON sc.id = sik.id AND sc.colid = sik.colid INNER JOIN dbo.sysobjects so ON so.name = si.name AND so.xtype = 'PK' WHERE sc.id = col.id AND sc.colid = col.colid ) THEN 'YES' ELSE '' END AS 是否主键, comm.text AS 默认值 , CASE  WHEN COLUMNPROPERTY(col.id, col.name, 'IsIdentity') = 1 THEN 'auto_increment' ELSE '' END AS Extra, ISNULL(ep.value, '') AS 列说明 FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype = t.xusertype INNER JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN dbo.syscomments comm ON col.cdefault = comm.id LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' LEFT JOIN sys.extended_properties epTwo ON obj.id = epTwo.major_id AND epTwo.minor_id = 0 AND epTwo.name = 'MS_Description' LEFT JOIN information_schema.columns isc ON obj.name = isc.TABLE_NAME AND col.name = isc.COLUMN_NAME WHERE isc.TABLE_CATALOG = '{}' AND obj.name = '{}' ORDER BY col.colorder" \
+        sql = "SELECT col.name AS name, t.name AS type, isc.CHARACTER_MAXIMUM_LENGTH,CASE WHEN col.isnullable = 1 THEN 'YES' ELSE 'NO' END AS 允许空,CASE WHEN EXISTS ( SELECT 1 FROM dbo.sysindexes si INNER JOIN dbo.sysindexkeys sik ON si.id = sik.id AND si.indid = sik.indid INNER JOIN dbo.syscolumns sc ON sc.id = sik.id AND sc.colid = sik.colid INNER JOIN dbo.sysobjects so ON so.name = si.name AND so.xtype = 'PK' WHERE sc.id = col.id AND sc.colid = col.colid ) THEN 'YES' ELSE '' END AS 是否主键, comm.text AS 默认值 , CASE  WHEN COLUMNPROPERTY(col.id, col.name, 'IsIdentity') = 1 THEN 'auto_increment' ELSE '' END AS Extra, ISNULL(ep.value, '') AS 列说明 FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype = t.xusertype INNER JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN dbo.syscomments comm ON col.cdefault = comm.id LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' LEFT JOIN sys.extended_properties epTwo ON obj.id = epTwo.major_id AND epTwo.minor_id = 0 AND epTwo.name = 'MS_Description' LEFT JOIN information_schema.columns isc ON obj.name = isc.TABLE_NAME AND col.name = isc.COLUMN_NAME WHERE isc.TABLE_CATALOG = '{}' AND obj.name = '{}' ORDER BY col.colorder" \
             .format(conf['database'], tab_name)
         header = ['Name', 'Type', 'Nullable', 'Is_Primary', 'Default', 'Extra', 'Comment']
     description, res = exe_query(sql, conn)
     res = [list(row) for row in res]
     if conf['servertype'] == 'sqlserver':
         for row in res:
-            if row[2]:
+            if row[2] and row[1] not in {'text'}:
                 row[1] = '{}({})'.format(row[1],
                                          'max' if row[2] == -1 else row[2])
             row.pop(2)
