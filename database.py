@@ -1054,6 +1054,7 @@ sql         <sql> [false] [raw] [human] [format] [column index]
             [col limit], print specific columns, example: "col[0,1,2]" or "col[0-2]".
             [row limit], print specific rows, example: "row[0:-1]".
 set         <key=val> set database configuration, example: "env=qa", "conf=main".
+version     print product version and exit.
 lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
 unlock      <passwd> unlock database configuration.\n''')
     if not error_condition:
@@ -1235,7 +1236,7 @@ def parse_args(args):
             p: str = args[index].strip().lower()
             limit_row_re = re.match("^(row)\[\s*(-?\d+)\s*:\s*(-?\d+)\s*(\])$", p)
             limit_column_re = re.match("^(col)\[((\s*\d+\s*-\s*\d+\s*)|(\s*(\d+)\s*(,\s*(\d+)\s*)*))(\])$", p)
-            if option in {'info', 'shell', 'help', 'test', 'show'}:
+            if option in {'info', 'shell', 'help', 'test', 'show', 'version'}:
                 _error_param_exit(p)
             elif index == 2 and option in {'sql', 'scan', 'desc', 'load', 'set', 'lock', 'unlock'}:
                 # 第3个参数可以自定义输入的操作
@@ -1307,6 +1308,8 @@ if __name__ == '__main__':
             print_usage()
         elif opt == 'test':
             test()
+        elif opt == 'version':
+            print('db 2.0.0')
         else:
             print(ERROR_COLOR.wrap("Invalid operation !"))
             print_usage(error_condition=True)
