@@ -57,6 +57,7 @@ widths = [
     (1114109, 1),
 ]
 
+
 class DatabaseType(Enum):
     SQLSERVER = 'sqlserver'
     MYSQL = 'mysql'
@@ -139,7 +140,7 @@ ERROR_COLOR = Color.RED
 WARN_COLOR = Color.KHAKI
 FOLD_COLOR = Color.BLACK_WHITE_TWINKLE
 
-config = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit']
+config = ('env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit')
 
 
 def check_conf(dbconf: dict):
@@ -327,6 +328,7 @@ def exe_no_query(sql, conn):
         write_history('sql', sql, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
     return effect_rows, description, res
+
 
 def calc_char_width(char):
     char_ord = ord(char)
@@ -1079,21 +1081,11 @@ def is_executable(sql):
     if sql is None:
         return False
     t_sql = sql.lower()
-    return t_sql.startswith('insert') \
-           or t_sql.startswith('create') \
-           or t_sql.startswith('update') \
-           or t_sql.startswith('select') \
-           or t_sql.startswith('delete') \
-           or t_sql.startswith('alter') \
-           or t_sql.startswith('set') \
-           or t_sql.startswith('drop') \
-           or t_sql.startswith('go') \
-           or t_sql.startswith('use') \
-           or t_sql.startswith('if') \
-           or t_sql.startswith('with') \
-           or t_sql.startswith('show') \
-           or t_sql.startswith('desc') \
-           or t_sql.startswith('grant')
+    for s in ('insert', 'create', 'update', 'select', 'delete', 'alter', 'set',
+              'drop', 'go', 'use', 'if', 'with', 'show', 'desc', 'grant'):
+        if t_sql.startswith(s):
+            return True
+    return False
 
 
 def load(path):
