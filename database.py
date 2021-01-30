@@ -17,44 +17,11 @@ from enum import Enum
 from datetime import datetime
 
 widths = [
-    (126, 1),
-    (159, 0),
-    (687, 1),
-    (710, 0),
-    (711, 1),
-    (727, 0),
-    (733, 1),
-    (879, 0),
-    (1154, 1),
-    (1161, 0),
-    (4347, 1),
-    (4447, 2),
-    (7467, 1),
-    (7521, 0),
-    (8369, 1),
-    (8426, 0),
-    (9000, 1),
-    (9002, 2),
-    (11021, 1),
-    (12350, 2),
-    (12351, 1),
-    (12438, 2),
-    (12442, 0),
-    (19893, 2),
-    (19967, 1),
-    (55203, 2),
-    (63743, 1),
-    (64106, 2),
-    (65039, 1),
-    (65059, 0),
-    (65131, 2),
-    (65279, 1),
-    (65376, 2),
-    (65500, 1),
-    (65510, 2),
-    (120831, 1),
-    (262141, 2),
-    (1114109, 1),
+    (126, 1), (159, 0), (687, 1), (710, 0), (711, 1), (727, 0), (733, 1), (879, 0),
+    (1154, 1), (1161, 0), (4347, 1), (4447, 2), (7467, 1), (7521, 0), (8369, 1), (8426, 0),
+    (9000, 1), (9002, 2), (11021, 1), (12350, 2), (12351, 1), (12438, 2), (12442, 0), (19893, 2),
+    (19967, 1), (55203, 2), (63743, 1), (64106, 2), (65039, 1), (65059, 0), (65131, 2), (65279, 1),
+    (65376, 2), (65500, 1), (65510, 2), (120831, 1), (262141, 2), (1114109, 1),
 ]
 
 
@@ -139,6 +106,7 @@ INFO_COLOR = Color.GREEN
 ERROR_COLOR = Color.RED
 WARN_COLOR = Color.KHAKI
 FOLD_COLOR = Color.BLACK_WHITE_TWINKLE
+NULL_COLOR = Color.BLACK_WHITE_TWINKLE
 
 config = ('env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit')
 
@@ -341,62 +309,49 @@ def calc_char_width(char):
     return 1
 
 
-def chinese_length_str(obj):
+def str_width(any_str):
+    if any_str == NULL_COLOR.wrap('NULL'):
+        return 4
     l = 0
     fold_color_str = FOLD_COLOR.wrap(FOLD_REPLACE_STR)
-    str_obj = 'NULL' if obj is None else str(obj)
-    color_len = len(FOLD_COLOR.wrap('')) if str_obj.endswith(fold_color_str) else 0
-    for char in str_obj:
+    color_len = len(FOLD_COLOR.wrap('')) if any_str.endswith(fold_color_str) else 0
+    for char in any_str:
         l += calc_char_width(char)
     return l - color_len
 
 
-def print_by_align(data, space_num, align_type, color=Color.NO_COLOR, end_str=' | '):
+def align_str(data, space_num, align_type, color=Color.NO_COLOR, end_str=' | '):
     if space_num == 0:
-        print(color.wrap(data), end=end_str)
-        return
+        return color.wrap(data) + end_str
     if align_type == Align.ALIGN_RIGHT:
-        print('{}{}'.format(' ' * space_num, color.wrap(data)), end=end_str)
+        return '{}{}{}'.format(' ' * space_num, color.wrap(data), end_str)
     elif align_type == Align.ALIGN_LEFT:
-        print('{}{}'.format(color.wrap(data), ' ' * space_num), end=end_str)
+        return '{}{}{}'.format(color.wrap(data), ' ' * space_num, end_str)
     else:
         half_space_num = int(space_num / 2)
         left_space_num = space_num - half_space_num
-        print('{}{}{}'.format(' ' * half_space_num, color.wrap(data), ' ' * left_space_num), end=end_str)
+        return '{}{}{}{}'.format(' ' * half_space_num, color.wrap(data), ' ' * left_space_num, end_str)
 
 
 def isdigit(e):
     return isinstance(e, int) or isinstance(e, float)
 
 
-def print_row_format(row, head_length,
-                     align_list=None,
-                     color=Color.NO_COLOR, split_char='|'):
+def table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_char='|'):
     end_str = ' {} '.format(split_char)
-    if not align_list:
-        align_list = [Align.ALIGN_CENTER for i in range(len(row))]
+    print_data = [split_char, ' ']
     for index, e in enumerate(row):
-        e_str = 'NULL' if e is None else str(e)
-        space_num = abs(chinese_length_str(e_str) - head_length[index])
-        if index == 0:
-            print('{} '.format(split_char), end='')
-        print_by_align(e_str, space_num, align_type=align_list[index], color=color, end_str=end_str)
-        if index == len(row) - 1:
-            # 行尾
-            print()
+        space_num = abs(str_width(e) - head_length[index])
+        print_data.append(align_str(e, space_num, align_type=align_list[index], color=color, end_str=end_str))
+    return ''.join(print_data)
 
 
 def get_max_length_each_fields(rows, func):
-    def col_len(iterable):
-        l = 0
-        for row in iterable:
-            return len(row) if l < len(row) else l
-        return l
-
-    length_head = col_len(rows) * [0]
+    length_head = len(rows[0]) * [0]
     for row in rows:
         for index, e in enumerate(row):
-            length_head[index] = func(e) if func(e) > length_head[index] else length_head[index]
+            func_length = func(e)
+            length_head[index] = func_length if func_length > length_head[index] else length_head[index]
     return length_head
 
 
@@ -631,7 +586,7 @@ def print_csv(header, res, split_char=','):
     for row in res:
         new_row = []
         for data in row:
-            print_data = "NULL" if data is None else str(data)
+            print_data = "" if data is None else str(data)
             if split_char in print_data or '\n' in print_data or '\r' in print_data:
                 print_data = '"{}"'.format(print_data.replace('"', '""'))
             new_row.append(print_data)
@@ -639,16 +594,13 @@ def print_csv(header, res, split_char=','):
 
 
 def print_markdown(header, res):
-    def _deal_res(res):
-        return [[deal_html_elem(e) for e in row] for row in res]
-
     res.insert(0, header)
-    res = _deal_res(res)
-    max_length_each_fields = get_max_length_each_fields(res, chinese_length_str)
+    res = [[deal_html_elem(e) for e in row] for row in res]
+    max_length_each_fields = get_max_length_each_fields(res, str_width)
     res.insert(1, ['-' * l for l in max_length_each_fields])
     align_list = [Align.ALIGN_LEFT for i in range(len(header))]
-    for index, r in enumerate(res):
-        print_row_format(r, max_length_each_fields, align_list=align_list, color=Color.NO_COLOR)
+    for index, row in enumerate(res):
+        print(table_row_str(row, max_length_each_fields, align_list=align_list, color=Color.NO_COLOR))
 
 
 def run_sql(sql: str, conn, fold=True, columns=None):
@@ -706,6 +658,8 @@ def scan_table(table_name, fold=True, columns=None):
 
 
 def print_result_set(header, res, columns, fold, sql):
+    if not header:
+        return
     if not res and format == 'table':
         print(WARN_COLOR.wrap('Empty Sets!'))
         return
@@ -822,42 +776,46 @@ def default_after_print_row(max_row_length, split_char, table_width):
 
 def print_table(header, res, split_row_char='-', start_func=default_print_start,
                 after_print_row_func=default_after_print_row, end_func=default_print_end):
-    def _get_align_list(res_list):
-        _align_list = [Align.ALIGN_LEFT for i in range(len(res_list[0]) if len(res_list) > 0 else 0)]
-        for col_index in range(len(_align_list)):
-            for row in res_list:
-                # 数字采用右对齐
-                if isdigit(row[col_index]):
-                    _align_list[col_index] = Align.ALIGN_RIGHT
-                    break
-        return _align_list
-
     def _deal_res(res):
-        return [[e.replace('\r', '\\r').replace('\n', '\\n') if isinstance(e, str) else e for e in row] for row in res]
+        _align_list = [Align.ALIGN_LEFT for i in range(len(res[0]))]
+        for row in res:
+            for index, e in enumerate(row):
+                if isinstance(e, str):
+                    row[index] = e.replace('\r', '\\r').replace('\n', '\\n')
+                elif isdigit(e):
+                    # 数字采用右对齐
+                    _align_list[index] = Align.ALIGN_RIGHT
+                    row[index] = str(e)
+                elif e is None:
+                    row[index] = NULL_COLOR.wrap('NULL')
+                else:
+                    row[index] = str(e)
+        return res, _align_list
 
     res.insert(0, header)
-    res = _deal_res(res)
-    max_length_each_fields = get_max_length_each_fields(res, chinese_length_str)
+    res, align_list = _deal_res(res)
+    max_length_each_fields = get_max_length_each_fields(res, str_width)
     # 数据的总长度
     max_row_length = sum(max_length_each_fields)
     # 表格的宽度(数据长度加上分割线)
     table_width = 1 + max_row_length + 3 * len(max_length_each_fields)
     header = res.pop(0)
     space_list_down = [split_row_char * i for i in max_length_each_fields]
-    align_list = _get_align_list(res)
     start_func(table_width)
+    default_align = [Align.ALIGN_LEFT for i in range(len(header))]
     # 打印表格的上顶线
-    print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
+    print(table_row_str(space_list_down, max_length_each_fields, default_align, color=Color.NO_COLOR, split_char='+'))
     # 打印HEADER部分
-    print_row_format(header, max_length_each_fields, align_list=align_list, color=TABLE_HEAD_COLOR)
+    print(table_row_str(header, max_length_each_fields, align_list, color=TABLE_HEAD_COLOR))
     # 打印HEADER和DATA之间的分割线
-    print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
+    print(table_row_str(space_list_down, max_length_each_fields, default_align, color=Color.NO_COLOR, split_char='+'))
     for row in res:
         # 打印DATA部分
-        print_row_format(row, max_length_each_fields, align_list=align_list, color=DATA_COLOR)
+        print(table_row_str(row, max_length_each_fields, align_list, color=DATA_COLOR))
         after_print_row_func(max_row_length, split_row_char, table_width)
-    # 打印表格的下底线
-    print_row_format(space_list_down, max_length_each_fields, color=Color.NO_COLOR, split_char='+')
+    if res:
+        # 有数据时，打印表格的下底线
+        print(table_row_str(space_list_down, max_length_each_fields, default_align, color=Color.NO_COLOR, split_char='+'))
     end_func(table_width, len(res))
 
 
@@ -873,13 +831,14 @@ def print_info():
 
 
 def disable_color():
-    global DATA_COLOR, TABLE_HEAD_COLOR, INFO_COLOR, ERROR_COLOR, WARN_COLOR, FOLD_COLOR
+    global DATA_COLOR, TABLE_HEAD_COLOR, INFO_COLOR, ERROR_COLOR, WARN_COLOR, FOLD_COLOR, NULL_COLOR
     DATA_COLOR = Color.NO_COLOR
     TABLE_HEAD_COLOR = Color.NO_COLOR
     INFO_COLOR = Color.NO_COLOR
     WARN_COLOR = Color.NO_COLOR
     ERROR_COLOR = Color.NO_COLOR
     FOLD_COLOR = Color.NO_COLOR
+    NULL_COLOR = Color.NO_COLOR
 
 
 class Opt(Enum):
@@ -913,10 +872,13 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
                             'Add "{}" conf in env={}'.format(set_conf_value, read_info['use']['env'])))
                 continue
             elif conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
-                print(ERROR_COLOR.wrap('"{}" not supported'.format(set_conf_value)))
+                print(ERROR_COLOR.wrap('"{}" not supported!'.format(set_conf_value)))
                 continue
             elif conf_key == 'autocommit':
-                set_conf_value = set_conf_value == 'true'
+                if set_conf_value.lower() not in {'true', 'false'}:
+                    print(ERROR_COLOR.wrap('"{}" incorrect parameters!'.format(set_conf_value)))
+                    continue
+                set_conf_value = set_conf_value.lower() == 'true'
             elif conf_key == 'port':
                 if not set_conf_value.isdigit():
                     print(ERROR_COLOR.wrap('set port={} fail'.format(set_conf_value)))
