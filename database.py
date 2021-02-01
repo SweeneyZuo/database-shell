@@ -1219,7 +1219,6 @@ def parse_args(args):
                 set_raw = True
                 disable_color()
             elif not set_export_type and option == 'export' and p in {'ddl', 'data', 'all'}:
-                disable_color()
                 export_type, fold, set_export_type = p, False, True
             elif not set_human and p == 'human':
                 human, set_human = True, True
