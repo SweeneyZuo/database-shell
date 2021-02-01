@@ -98,7 +98,6 @@ class Stat(Enum):
 
 FOLD_LIMIT = 50
 FOLD_REPLACE_STR = "..."
-ROW_MAX_WIDTH = 234  # 165
 SHOW_BOTTOM_THRESHOLD = 150
 DATA_COLOR = Color.NO_COLOR
 TABLE_HEAD_COLOR = Color.RED
@@ -771,8 +770,7 @@ def default_print_end(table_width, total):
 
 def default_after_print_row(max_row_length, split_char, table_width):
     if max_row_length > SHOW_BOTTOM_THRESHOLD:
-        print('{}'.format(split_char * (table_width if table_width < ROW_MAX_WIDTH else ROW_MAX_WIDTH)))
-
+        print('{}'.format(split_char * table_width))
 
 def print_table(header, res, split_row_char='-', start_func=default_print_start,
                 after_print_row_func=default_after_print_row, end_func=default_print_end):
