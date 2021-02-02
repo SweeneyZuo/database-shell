@@ -440,7 +440,7 @@ def desc_table(tab_name, fold, columns):
     conn, conf = get_connection()
     if conn is None:
         return
-    print_table_schema(conf, conn, tab_name, fold, columns)
+    print_table_schema(conf, conn, tab_name, columns, fold)
     conn.close()
 
 
@@ -1180,9 +1180,8 @@ def parse_args(args):
 
     option = args[1].strip().lower() if len(args) > 1 else ''
     global out_format, human, export_type, limit_rows
-    columns, fold, export_type, human, out_format, \
-    set_format, set_human, set_export_type, set_columns, set_fold, set_raw, set_row_limit, limit_rows = None, True, 'all', False, 'table' \
-        , False, False, False, False, False, False, False, None
+    columns, fold, export_type, human, out_format, set_format, set_human, set_export_type, set_columns, set_fold, \
+    set_raw, set_row_limit, limit_rows = None, True, 'all', False, 'table', False, False, False, False, False, False, False, None
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
     if len(args) > parse_start_pos:
