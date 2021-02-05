@@ -780,7 +780,7 @@ def print_table(header, res, split_row_char='-', start_func=default_print_start,
         for row in res:
             for index, e in enumerate(row):
                 if isinstance(e, str):
-                    row[index] = e.replace('\r', '\\r').replace('\n', '\\n')
+                    row[index] = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t')
                 elif isdigit(e):
                     # 数字采用右对齐
                     _align_list[index] = Align.ALIGN_RIGHT
