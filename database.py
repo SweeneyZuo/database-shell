@@ -167,10 +167,6 @@ def get_proc_home():
     return os.path.dirname(os.path.abspath(sys.argv[0]))
 
 
-def get_script_name():
-    return os.path.abspath(sys.argv[0])
-
-
 def write_history(option, content, stat):
     filename = 'hist/.{}_db.history'.format(datetime.now().date())
     proc_home = get_proc_home()
@@ -457,22 +453,8 @@ def print_table_schema(conf, conn, tab_name, columns, fold=False, attach_sql=Fal
             print('```\n', end='')
 
 
-def get_max_len(list):
-    max_len = 0
-    for i in list:
-        max_len = len(i) if len(i) > max_len else max_len
-    return max_len
-
-
 def get_table_head_from_description(description):
     return [desc[0] for desc in description] if description else []
-
-
-def fold_res(res):
-    if res:
-        return [[e if len(str(e)) < FOLD_LIMIT else
-                 str(e)[:FOLD_LIMIT - 3] + FOLD_COLOR.wrap(FOLD_REPLACE_STR) for e in line] for line in res]
-    return res
 
 
 def print_json(header, res):
@@ -621,10 +603,6 @@ def deal_bin(res):
                     row[index] = str(base64.standard_b64encode(e), 'utf8')
 
 
-def limit_rows_func(res, limit):
-    return res[limit[0]:limit[1]]
-
-
 def before_print(header, res, columns, fold=True):
     """
         需要注意不能改变原本数据的类型，除了需要替换成其它数据的情况
@@ -635,11 +613,12 @@ def before_print(header, res, columns, fold=True):
     global limit_rows
     if limit_rows:
         header = res.pop(0)
-        res = limit_rows_func(res, limit_rows)
+        res = res[limit_rows[0]:limit_rows[1]]
         res.insert(0, header)
     deal_bin(res)
     res = deal_human(res) if human else res
-    res = fold_res(res) if fold else res
+    res = [[e if len(str(e)) < FOLD_LIMIT else
+            str(e)[:FOLD_LIMIT - 3] + FOLD_COLOR.wrap(FOLD_REPLACE_STR) for e in line] for line in res] if fold else res
     return res.pop(0), res
 
 
@@ -780,7 +759,7 @@ def print_table(header, res, split_row_char='-', start_func=default_print_start,
         for row in res:
             for index, e in enumerate(row):
                 if isinstance(e, str):
-                    row[index] = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t')\
+                    row[index] = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
                         .replace('\0', '\\0').replace('\b', '\\b')
                 elif isdigit(e):
                     # 数字采用右对齐
