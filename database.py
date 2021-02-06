@@ -244,14 +244,13 @@ def get_tab_name_from_sql(src_sql: str):
         return src_sql[b_index:b_index + len(tab_name)]
 
     sql = src_sql.strip().lower()
-    if (sql.startswith('select') or sql.startswith('delete')) and 'from' in sql:
+    if sql.startswith(('select', 'delete')) and 'from' in sql:
         return deal_tab_name(re.split('\\s+', sql[sql.index('from') + 4:].strip())[0])
     elif sql.startswith('update'):
         return deal_tab_name(re.split('\\s+', sql[sql.index('update') + 6:].strip())[0])
-    elif sql.startswith('alter') or sql.startswith('create') or (
-            sql.startswith('drop') and re.split('\\s+', sql)[1] == 'table'):
+    elif sql.startswith(('create', 'alter',)) or (sql.startswith('drop') and re.split('\\s+', sql)[1] == 'table'):
         return deal_tab_name(re.split('\\s+', sql[sql.index('table') + 5:].strip())[0])
-    elif sql.startswith('desc'):
+    elif sql.startswith(('desc', 'describe')):
         return deal_tab_name(re.split('\\s+', sql)[1].strip())
     else:
         return None
@@ -345,8 +344,7 @@ def get_max_length_each_fields(rows, func):
     length_head = len(rows[0]) * [0]
     for row in rows:
         for index, e in enumerate(row):
-            func_length = func(e)
-            length_head[index] = func_length if func_length > length_head[index] else length_head[index]
+            length_head[index] = max(func(e), length_head[index])
     return length_head
 
 
@@ -719,19 +717,17 @@ def print_insert_sql(header, res, tab_name):
         return
 
     def _case_for_sql(row):
-        _res = []
-        for e in row:
+        for index, e in enumerate(row):
             if e is None:
-                _res.append("NULL")
-            elif isinstance(e, int) or isinstance(e, float):
-                _res.append(str(e))
+                row[index] = "NULL"
+            elif isdigit(e):
+                row[index] = str(e)
             elif isinstance(e, str):
-                e = e.replace("'", "''")
-                _res.append("'{}'".format(e))
+                row[index] = "'{}'".format(e.replace("'", "''"))
             else:
                 print(WARN_COLOR.wrap("TYPE WARN:{}".format(type(e))))
-                _res.append("'{}'".format(e))
-        return _res
+                row[index] = "'{}'".format(e)
+        return row
 
     header = list(map(lambda x: str(x), header))
     template = "INSERT INTO {} ({}) VALUES ({});".format(tab_name, ",".join(header), "{}")
@@ -1020,14 +1016,10 @@ def shell():
 
 
 def is_executable(sql):
-    if sql is None:
+    if not sql:
         return False
-    t_sql = sql.lower()
-    for s in ('insert', 'create', 'update', 'select', 'delete', 'alter', 'set',
-              'drop', 'go', 'use', 'if', 'with', 'show', 'desc', 'grant'):
-        if t_sql.startswith(s):
-            return True
-    return False
+    return sql.lower().startswith(('insert', 'create', 'update', 'select', 'delete', 'alter', 'set',
+                                   'drop', 'go', 'use', 'if', 'with', 'show', 'desc', 'grant'))
 
 
 def load(path):
@@ -1057,14 +1049,11 @@ def load(path):
                 return
             cur = conn.cursor()
             success_num, fail_num = 0, 0
-
             with open(path, mode='r', encoding='UTF8') as sql_file:
                 sql = ''
                 for line in sql_file.readlines():
                     t_sql = line.strip()
-                    if len(t_sql) == 0 \
-                            or t_sql.startswith('--') \
-                            or t_sql.startswith('#'):
+                    if not t_sql or t_sql.startswith('--'):
                         continue
                     elif is_executable(t_sql):
                         if sql == '':
@@ -1075,7 +1064,7 @@ def load(path):
                         fail_num += fail
                         sql = line
                     else:
-                        sql = "{}{}".format(sql, line)
+                        sql += line
                 if sql != '':
                     success, fail = exe_sql(cur, sql)
                     success_num += success
@@ -1241,7 +1230,7 @@ if __name__ == '__main__':
         elif opt == 'test':
             test()
         elif opt == 'version':
-            print('db 2.0.0')
+            print('db 2.0.1')
         else:
             print(ERROR_COLOR.wrap("Invalid operation !"))
             print_usage(error_condition=True)
