@@ -797,9 +797,8 @@ def print_table(header, res, split_row_char='-', start_func=default_print_start,
 
 def print_info():
     try:
-        config = read_info()
-        config = {} if config is None else config
-        show_database_info(config)
+        read_config = read_info()
+        show_database_info({} if read_config is None else read_config)
         write_history('info', '', Stat.OK)
     except BaseException as  e:
         write_history('info', '', Stat.ERROR)
@@ -865,9 +864,8 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
 
 
 def read_info():
-    filename = 'config/.db.info'
     proc_home = get_proc_home()
-    file = os.path.join(proc_home, filename)
+    file = os.path.join(proc_home, 'config/.db.info')
     with open(os.path.join(proc_home, 'config/.db.info.lock'), mode='w+') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='r', encoding='UTF8') as info_file:
@@ -911,17 +909,14 @@ def set_info(kv):
 
 
 def is_locked():
-    lock_value_file = os.path.join(get_proc_home(), 'config/.db.lock.value')
-    return os.path.exists(lock_value_file)
+    return os.path.exists(os.path.join(get_proc_home(), 'config/.db.lock.value'))
 
 
 def lock_value():
     lock_value_file = os.path.join(get_proc_home(), 'config/.db.lock.value')
-    val = None
     if is_locked():
         with open(lock_value_file, 'r') as f:
-            val = f.read()
-    return val
+            return f.read()
 
 
 def unlock(key):
@@ -1015,13 +1010,6 @@ def shell():
     write_history('shell', '', Stat.OK)
 
 
-def is_executable(sql):
-    if not sql:
-        return False
-    return sql.lower().startswith(('insert', 'create', 'update', 'select', 'delete', 'alter', 'set',
-                                   'drop', 'go', 'use', 'if', 'with', 'show', 'desc', 'grant'))
-
-
 def load(path):
     def exe_sql(cur, sql):
         try:
@@ -1055,7 +1043,8 @@ def load(path):
                     t_sql = line.strip()
                     if not t_sql or t_sql.startswith('--'):
                         continue
-                    elif is_executable(t_sql):
+                    elif t_sql.lower().startswith(('insert', 'create', 'update', 'select', 'delete', 'alter', 'set',
+                                                   'drop', 'go', 'use', 'if', 'with', 'show', 'desc', 'grant')):
                         if sql == '':
                             sql = line
                             continue
