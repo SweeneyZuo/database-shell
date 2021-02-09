@@ -88,6 +88,8 @@ class Color(Enum):
     NO_COLOR = "{}"
 
     def wrap(self, v):
+        if self is Color.NO_COLOR:
+            return v
         return self.value.format(v)
 
 
@@ -143,9 +145,9 @@ def show_database_info(info):
 
     def print_start_info(table_width):
         start_info_msg = '[DATABASE INFO]'
-        f = (int)((table_width - len(start_info_msg)) / 2)
+        f = (table_width - len(start_info_msg)) >> 1
         b = table_width - len(start_info_msg) - f
-        print('{}{}{}'.format('#' * f, start_info_msg, '#' * b))
+        print(f'{"#" * f}{start_info_msg}{"#"* b}')
 
     def print_end_info(table_width, total):
         print('#' * table_width)
@@ -168,11 +170,11 @@ def get_proc_home():
 
 
 def write_history(option, content, stat):
-    filename = 'hist/.{}_db.history'.format(datetime.now().date())
+    filename = f'hist/.{datetime.now().date()}_db.history'
     proc_home = get_proc_home()
     file = os.path.join(proc_home, filename)
     time = datetime.now().strftime('%H:%M:%S')
-    data = '{}|{}|{}|{}\n'.format(time, option, content, stat.value)
+    data = f'{time}|{option}|{content}|{stat.value}\n'
     with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='a+', encoding='UTF-8') as history_file:
@@ -181,7 +183,7 @@ def write_history(option, content, stat):
 
 
 def read_history():
-    filename = 'hist/.{}_db.history'.format(datetime.now().date())
+    filename = f'hist/.{datetime.now().date()}_db.history'
     proc_home = get_proc_home()
     file = os.path.join(proc_home, filename)
     history_list = []
@@ -225,7 +227,7 @@ def get_connection():
                                    charset=config.get('charset', 'UTF8'),
                                    autocommit=config.get('autocommit', False)), config
         else:
-            print(ERROR_COLOR.wrap("servertype error! servertype={}".format(server_type)))
+            print(ERROR_COLOR.wrap(f"servertype error! servertype={server_type}"))
     except BaseException as e:
         print(ERROR_COLOR.wrap(e))
         return None, config
@@ -314,29 +316,26 @@ def str_width(any_str):
     return l - color_len
 
 
-def align_str(data, space_num, align_type, color=Color.NO_COLOR, end_str=' | '):
-    if space_num == 0:
-        return color.wrap(data) + end_str
-    if align_type == Align.ALIGN_RIGHT:
-        return '{}{}{}'.format(' ' * space_num, color.wrap(data), end_str)
-    elif align_type == Align.ALIGN_LEFT:
-        return '{}{}{}'.format(color.wrap(data), ' ' * space_num, end_str)
-    else:
-        half_space_num = int(space_num / 2)
-        left_space_num = space_num - half_space_num
-        return '{}{}{}{}'.format(' ' * half_space_num, color.wrap(data), ' ' * left_space_num, end_str)
-
-
 def isdigit(e):
     return isinstance(e, int) or isinstance(e, float)
 
 
 def table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_char='|'):
-    end_str = ' {} '.format(split_char)
+    end_str = f' {split_char} '
     print_data = [split_char, ' ']
     for index, e in enumerate(row):
         space_num = abs(e[1] - head_length[index])
-        print_data.append(align_str(e[0], space_num, align_type=align_list[index], color=color, end_str=end_str))
+        align_type = align_list[index]
+        if space_num == 0:
+            print_data.extend((color.wrap(e[0]), end_str))
+        elif align_type == Align.ALIGN_RIGHT:
+            print_data.extend((' ' * space_num, color.wrap(e[0]), end_str))
+        elif align_type == Align.ALIGN_LEFT:
+            print_data.extend((color.wrap(e[0]), ' ' * space_num, end_str))
+        else:
+            half_space_num = space_num >> 1
+            left_space_num = space_num - half_space_num
+            print_data.extend((' ' * half_space_num, color.wrap(e[0]), ' ' * left_space_num, end_str))
     return ''.join(print_data)
 
 
@@ -351,7 +350,7 @@ def get_max_length_each_fields(rows, func):
 
 def get_list_tab_sql(server_type, database_name):
     if server_type == 'mysql':
-        return "SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA='{}'".format(database_name)
+        return f"SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA='{database_name}'"
     else:
         return "SELECT name FROM sys.tables ORDER BY name"
 
@@ -366,35 +365,35 @@ def list_tables():
 
 def print_create_table(server_type, conn, tab_name):
     def print_create_table_mysql():
-        sql = 'show create table {}'.format(tab_name)
+        sql = f'show create table {tab_name}'
         effect_rows, description, res = exe_no_query(sql, conn)
         header, res = before_print(get_table_head_from_description(description), res, [1], fold=False)
         print(res[0][0])
 
     def print_create_table_sqlserver():
-        sql = "select * from information_schema.columns where table_name = '{}'".format(tab_name)
-        sql2 = "sp_columns {}".format(tab_name)
+        sql = f"select * from information_schema.columns where table_name = '{tab_name}'"
+        sql2 = f"sp_columns {tab_name}"
         effect_rows, description, res = exe_no_query(sql, conn)
         effect_rows2, description2, res2 = exe_no_query(sql2, conn)
         header, res = before_print(get_table_head_from_description(description), res, None, fold=False)
         header2, res2 = before_print(get_table_head_from_description(description2), res2, None, fold=False)
-        print("CREATE TABLE [{}].[{}].[{}] (".format(res[0][0], res[0][1], res[0][2]))
+        print(f"CREATE TABLE [{res[0][0]}].[{res[0][1]}].[{res[0][2]}] (")
         for index, (row, row2) in enumerate(zip(res, res2)):
             colum_name = row[3]
             data_type = row[7] if row2[5] in ('ntext',) else row2[5]
-            print("  [{}] {}".format(colum_name, data_type), end="")
+            print(f"  [{colum_name}] {data_type}", end="")
             if row[8] is not None and data_type not in ('text',):
-                print("({})".format('max' if row[8] == -1 else row[8]), end="")
+                print(f"({'max' if row[8] == -1 else row[8]})", end="")
             elif data_type in ('decimal', 'numeric'):
-                print("({},{})".format(row[10], row[12]), end="")
+                print(f"({row[10]},{row[12]})", end="")
             elif data_type.endswith("identity"):
-                ident_seed = exe_no_query("SELECT IDENT_SEED ('{}')".format(tab_name), conn)[2][0][0]
-                ident_incr = exe_no_query("SELECT IDENT_INCR('{}')".format(tab_name), conn)[2][0][0]
-                print("({},{})".format(ident_seed, ident_incr), end="")
+                ident_seed = exe_no_query(f"SELECT IDENT_SEED ('{tab_name}')", conn)[2][0][0]
+                ident_incr = exe_no_query(f"SELECT IDENT_INCR('{tab_name}')", conn)[2][0][0]
+                print(f"({ident_seed},{ident_incr})", end="")
             if row2[12] is not None:
-                print(" DEFAULT {}".format(row2[12]), end="")
+                print(f" DEFAULT {row2[12]}", end="")
             if row[19] is not None:
-                print(" COLLATE {}".format(row[19]), end="")
+                print(f" COLLATE {row[19]}", end="")
             if row[6] == 'YES':
                 print(" NULL", end="")
             if row[6] == 'NO':
@@ -412,21 +411,18 @@ def print_create_table(server_type, conn, tab_name):
 
 
 def print_table_description(conf, conn, tab_name, columns, fold):
-    sql = "select COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
-          "from information_schema.columns where table_schema = '{}' and table_name = '{}' " \
-        .format(conf['database'], tab_name)
+    sql = f"""select COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
+          "from information_schema.columns where table_schema = '{conf['database']}' and table_name = '{tab_name}' """
     header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
     if conf['servertype'] == 'sqlserver':
-        sql = "SELECT col.name AS name, t.name AS type, isc.CHARACTER_MAXIMUM_LENGTH,CASE WHEN col.isnullable = 1 THEN 'YES' ELSE 'NO' END AS 允许空,CASE WHEN EXISTS ( SELECT 1 FROM dbo.sysindexes si INNER JOIN dbo.sysindexkeys sik ON si.id = sik.id AND si.indid = sik.indid INNER JOIN dbo.syscolumns sc ON sc.id = sik.id AND sc.colid = sik.colid INNER JOIN dbo.sysobjects so ON so.name = si.name AND so.xtype = 'PK' WHERE sc.id = col.id AND sc.colid = col.colid ) THEN 'YES' ELSE '' END AS 是否主键, comm.text AS 默认值 , CASE  WHEN COLUMNPROPERTY(col.id, col.name, 'IsIdentity') = 1 THEN 'auto_increment' ELSE '' END AS Extra, ISNULL(ep.value, '') AS 列说明 FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype = t.xusertype INNER JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN dbo.syscomments comm ON col.cdefault = comm.id LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' LEFT JOIN sys.extended_properties epTwo ON obj.id = epTwo.major_id AND epTwo.minor_id = 0 AND epTwo.name = 'MS_Description' LEFT JOIN information_schema.columns isc ON obj.name = isc.TABLE_NAME AND col.name = isc.COLUMN_NAME WHERE isc.TABLE_CATALOG = '{}' AND obj.name = '{}' ORDER BY col.colorder" \
-            .format(conf['database'], tab_name)
+        sql = f"""SELECT col.name AS name, t.name AS type, isc.CHARACTER_MAXIMUM_LENGTH,CASE WHEN col.isnullable = 1 THEN 'YES' ELSE 'NO' END AS 允许空,CASE WHEN EXISTS ( SELECT 1 FROM dbo.sysindexes si INNER JOIN dbo.sysindexkeys sik ON si.id = sik.id AND si.indid = sik.indid INNER JOIN dbo.syscolumns sc ON sc.id = sik.id AND sc.colid = sik.colid INNER JOIN dbo.sysobjects so ON so.name = si.name AND so.xtype = 'PK' WHERE sc.id = col.id AND sc.colid = col.colid ) THEN 'YES' ELSE '' END AS 是否主键, comm.text AS 默认值 , CASE  WHEN COLUMNPROPERTY(col.id, col.name, 'IsIdentity') = 1 THEN 'auto_increment' ELSE '' END AS Extra, ISNULL(ep.value, '') AS 列说明 FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype = t.xusertype INNER JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN dbo.syscomments comm ON col.cdefault = comm.id LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' LEFT JOIN sys.extended_properties epTwo ON obj.id = epTwo.major_id AND epTwo.minor_id = 0 AND epTwo.name = 'MS_Description' LEFT JOIN information_schema.columns isc ON obj.name = isc.TABLE_NAME AND col.name = isc.COLUMN_NAME WHERE isc.TABLE_CATALOG = '{conf['database']}' AND obj.name = '{tab_name}' ORDER BY col.colorder"""
         header = ['Name', 'Type', 'Nullable', 'Is_Primary', 'Default', 'Extra', 'Comment']
     description, res = exe_query(sql, conn)
     res = [list(row) for row in res]
     if conf['servertype'] == 'sqlserver':
         for row in res:
             if row[2] and row[1] not in {'text'}:
-                row[1] = '{}({})'.format(row[1],
-                                         'max' if row[2] == -1 else row[2])
+                row[1] = f'{row[1]}({"max" if row[2] == -1 else row[2]})'
             row.pop(2)
     print_result_set(header, res, columns, fold, sql)
 
@@ -465,7 +461,7 @@ def print_json(header, res):
 
 
 def print_html_head(html_head_file_name):
-    with open(os.path.join(get_proc_home(), 'config/html/{}'.format(html_head_file_name))) as html_head:
+    with open(os.path.join(get_proc_home(), 'config/html/', html_head_file_name)) as html_head:
         for line in html_head.readlines():
             print(line, end='')
 
@@ -476,7 +472,7 @@ def print_header_with_html(header):
         if index == 0:
             print("<tr>", end="")
         head = "" if head is None else head
-        print("<th>{}</th>".format(head), end="")
+        print(f"<th>{head}</th>", end="")
         if index == l:
             print("</tr>")
     return l
@@ -495,7 +491,7 @@ def print_html3(header, res):
         for index, e in enumerate(row):
             if index == 0:
                 print("<tr>", end="")
-            print("<td>{}</td>".format(deal_html_elem(e)), end="")
+            print(f"<td>{deal_html_elem(e)}</td>", end="")
         else:
             print("</tr>")
     print("</table>\n</body>\n</html>")
@@ -508,7 +504,7 @@ def print_html2(header, res):
         for index, e in enumerate(row):
             if index == 0:
                 print("<tr>", end="") if row_num % 2 == 0 else print('<tr class="alt">', end="")
-            print("<td>{}</td>".format(deal_html_elem(e)), end="")
+            print(f"<td>{deal_html_elem(e)}</td>", end="")
         else:
             print("</tr>")
     print("</table>\n</body>\n</html>")
@@ -522,7 +518,7 @@ def print_html(header, res):
             if index == 0:
                 s = '<tr onmouseover="this.style.backgroundColor=\'#ffff66\';"onmouseout="this.style.backgroundColor=\'#d4e3e5\';">'
                 print(s)
-            print("<td>{}</td>".format(deal_html_elem(e)), end="")
+            print(f"<td>{deal_html_elem(e)}</td>", end="")
         else:
             print("</tr>")
     print("</table>")
@@ -534,7 +530,7 @@ def print_html4(header, res):
         if index == 0:
             print("<thead><tr>", end="")
         head = "" if head is None else head
-        print("<th>{}</th>".format(head), end="")
+        print(f"<th>{head}</th>", end="")
     else:
         print("</tr></thead>")
     print('<tbody>')
@@ -542,7 +538,7 @@ def print_html4(header, res):
         for index, e in enumerate(row):
             if index == 0:
                 print('<tr>', end='')
-            print("<td>{}</td>".format(deal_html_elem(e)), end="")
+            print(f"<td>{deal_html_elem(e)}</td>", end="")
         else:
             print("</tr>")
     print("</tbody>\n</table>")
@@ -556,9 +552,9 @@ def print_xml(header, res):
         print("<RECORD>", end=end)
         for h, e in zip(header, row):
             if e is None:
-                print("{}<{}/>".format(intend, h), end=end)
+                print(f"{intend}<{h}/>", end=end)
             else:
-                print("{}<{}>{}</{}>".format(intend, h, e, h), end=end)
+                print(f"{intend}<{h}>{e}</{h}>", end=end)
         print("</RECORD>")
 
 
@@ -631,7 +627,7 @@ def run_one_sql(sql: str, fold=True, columns=None):
 
 
 def scan_table(table_name, fold=True, columns=None):
-    sql = "select * from {}".format(table_name)
+    sql = f"select * from {table_name}"
     run_one_sql(sql, fold, columns)
 
 
@@ -675,7 +671,7 @@ def print_result_set(header, res, columns, fold, sql):
     elif out_format == 'table':
         print_table(header, res)
     else:
-        print(ERROR_COLOR.wrap('Invalid print format : "{}"'.format(out_format)))
+        print(ERROR_COLOR.wrap(f'Invalid print format : "{out_format}"'))
 
 
 def run_no_sql(no_sql, conn, fold=True, columns=None):
@@ -685,7 +681,7 @@ def run_no_sql(no_sql, conn, fold=True, columns=None):
     if description and res:
         print_result_set(get_table_head_from_description(description), res, columns, fold, no_sql)
     if effect_rows and out_format == 'table':
-        print(INFO_COLOR.wrap('Effect rows:{}'.format(effect_rows)))
+        print(INFO_COLOR.wrap(f'Effect rows:{effect_rows}'))
 
 
 def deal_human(rows):
@@ -727,12 +723,12 @@ def print_insert_sql(header, res, tab_name):
             elif isinstance(e, str):
                 row[index] = "'{}'".format(e.replace("'", "''"))
             else:
-                print(WARN_COLOR.wrap("TYPE WARN:{}".format(type(e))))
-                row[index] = "'{}'".format(e)
+                print(WARN_COLOR.wrap(f"TYPE WARN:{type(e)}"))
+                row[index] = f"'{e}'"
         return row
 
     header = list(map(lambda x: str(x), header))
-    template = "INSERT INTO {} ({}) VALUES ({});".format(tab_name, ",".join(header), "{}")
+    template = f"INSERT INTO {tab_name} ({','.join(header)}) VALUES ({{}});"
     for row in res:
         print(template.format(",".join(_case_for_sql(row))))
 
@@ -742,12 +738,12 @@ def default_print_start(table_width):
 
 
 def default_print_end(table_width, total):
-    print(INFO_COLOR.wrap('Total Records: {}'.format(total)))
+    print(INFO_COLOR.wrap(f'Total Records: {total}'))
 
 
 def default_after_print_row(row_num, row_total_num, max_row_length, split_char, table_width):
     if max_row_length > SHOW_BOTTOM_THRESHOLD and row_num < row_total_num - 1:
-        print('{}'.format(split_char * table_width))
+        print(split_char * table_width)
 
 
 def print_table(header, res, split_row_char='-', start_func=default_print_start,
@@ -833,32 +829,31 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
             if conf_key == 'env':
                 read_info['use']['env'] = EnvType(set_conf_value).value
                 if opt is Opt.UPDATE:
-                    print(INFO_COLOR.wrap("set env={} ok.".format(set_conf_value)))
+                    print(INFO_COLOR.wrap(f"set env={set_conf_value} ok."))
                 continue
             elif conf_key == 'conf':
                 if set_conf_value in read_info['conf'][read_info['use']['env']].keys():
                     if opt is Opt.UPDATE:
                         read_info['use']['conf'] = set_conf_value
-                        print(INFO_COLOR.wrap("set conf={} ok.".format(set_conf_value)))
+                        print(INFO_COLOR.wrap(f"set conf={set_conf_value} ok."))
                 elif opt is Opt.UPDATE:
                     i = input(WARN_COLOR.wrap("Are you sure you want to add this configuration? Y/N:")).lower()
                     if i in ('y', 'yes'):
                         read_info['use']['conf'] = set_conf_value
                         read_info['conf'][read_info['use']['env']][read_info['use']['conf']] = {}
-                        print(INFO_COLOR.wrap(
-                            'Add "{}" conf in env={}'.format(set_conf_value, read_info['use']['env'])))
+                        print(INFO_COLOR.wrap(f'Add "{set_conf_value}" conf in env={read_info["use"]["env"]}'))
                 continue
             elif conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
-                print(ERROR_COLOR.wrap('"{}" not supported!'.format(set_conf_value)))
+                print(ERROR_COLOR.wrap(f'"{set_conf_value}" not supported!'))
                 continue
             elif conf_key == 'autocommit':
                 if set_conf_value.lower() not in {'true', 'false'}:
-                    print(ERROR_COLOR.wrap('"{}" incorrect parameters!'.format(set_conf_value)))
+                    print(ERROR_COLOR.wrap(f'"{set_conf_value}" incorrect parameters!'))
                     continue
                 set_conf_value = set_conf_value.lower() == 'true'
             elif conf_key == 'port':
                 if not set_conf_value.isdigit():
-                    print(ERROR_COLOR.wrap('set port={} fail'.format(set_conf_value)))
+                    print(ERROR_COLOR.wrap(f'set port={set_conf_value} fail!'))
                     continue
                 set_conf_value = int(set_conf_value)
             read_info['conf'][read_info['use']['env']][read_info['use']['conf']][conf_key] = set_conf_value
@@ -1023,13 +1018,13 @@ def load(path):
             try:
                 res = cur.fetchall()
             except:
-                print(WARN_COLOR.wrap('effect_rows:{}'.format(effect_rows)))
+                print(WARN_COLOR.wrap(f'effect_rows:{effect_rows}'))
             if None not in (res, description):
                 header, res = before_print(get_table_head_from_description(description), res, None, False)
                 print_result_set(header, res, None, False, sql)
             return 1, 0
         except BaseException as e:
-            print("sql:{}, error:{}".format(ERROR_COLOR.wrap(sql), ERROR_COLOR.wrap(e)))
+            print(f"sql:{ERROR_COLOR.wrap(sql)}, error:{ERROR_COLOR.wrap(e)}")
             return 0, 1
 
     try:
@@ -1062,13 +1057,13 @@ def load(path):
                     fail_num += fail
             conn.commit()
             conn.close()
-            print(INFO_COLOR.wrap('load ok. {} successfully executed, {} failed.'.format(success_num, fail_num)))
+            print(INFO_COLOR.wrap(f'load ok. {success_num} successfully executed, {fail_num} failed.'))
             write_history('load', path, Stat.OK)
         else:
-            print(ERROR_COLOR.wrap("path:{} not exist!".format(path)))
+            print(ERROR_COLOR.wrap(f"path:{path} not exist!"))
             write_history('load', path, Stat.ERROR)
     except BaseException as e:
-        print(ERROR_COLOR.wrap("load {} fail! {}".format(path, e)))
+        print(ERROR_COLOR.wrap(f"load {path} fail! {e}"))
         write_history('load', path, Stat.ERROR)
 
 
@@ -1117,13 +1112,12 @@ def export():
         print_template = get_print_template_with_format()
         for tab in tab_list:
             if export_type in {'all', 'ddl'}:
-                print(print_template.format('Table structure for table "{}"').format(tab[0]))
+                print(print_template.format(f'Table structure for table "{tab[0]}"'))
                 print_table_schema(conf, conn, tab[0], columns, fold, export_type == 'ddl')
                 print(split_line)
             if export_type in {'all', 'data'}:
-                print(print_template.format('Dumping data for table "{}"').format(tab[0]), end='')
-                sql = 'select * from {}'.format(tab[0])
-                run_sql(sql, conn, fold)
+                print(print_template.format(f'Dumping data for table "{tab[0]}"'), end='')
+                run_sql(f'select * from {tab[0]}', conn, fold)
                 print(split_line)
         write_history('export', export_type, Stat.OK)
     except BaseException as e:
@@ -1135,7 +1129,7 @@ def export():
 
 def parse_args(args):
     def _error_param_exit(param):
-        print(ERROR_COLOR.wrap('Invalid param : "{}"'.format(param)))
+        print(ERROR_COLOR.wrap(f'Invalid param : "{param}"'))
         sys.exit(-1)
 
     option = args[1].strip().lower() if len(args) > 1 else ''
