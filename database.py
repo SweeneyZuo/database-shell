@@ -335,8 +335,8 @@ def table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_char
     end_str = ' {} '.format(split_char)
     print_data = [split_char, ' ']
     for index, e in enumerate(row):
-        space_num = abs(str_width(e) - head_length[index])
-        print_data.append(align_str(e, space_num, align_type=align_list[index], color=color, end_str=end_str))
+        space_num = abs(e[1] - head_length[index])
+        print_data.append(align_str(e[0], space_num, align_type=align_list[index], color=color, end_str=end_str))
     return ''.join(print_data)
 
 
@@ -344,7 +344,8 @@ def get_max_length_each_fields(rows, func):
     length_head = len(rows[0]) * [0]
     for row in rows:
         for index, e in enumerate(row):
-            length_head[index] = max(func(e), length_head[index])
+            row[index] = (e, func(e))
+            length_head[index] = max(row[index][1], length_head[index])
     return length_head
 
 
@@ -483,7 +484,8 @@ def print_header_with_html(header):
 
 def deal_html_elem(e):
     e = "" if e is None else str(e)
-    return html.escape(e).replace('\r\n', '<br>').replace('\n', '<br>') if isinstance(e, str) else e
+    return html.escape(e).replace('\r\n', '<br>').replace('\0','\\0').replace('\b','\\b') \
+        .replace('\n', '<br>').replace('\t', '&ensp;' * 4) if isinstance(e, str) else e
 
 
 def print_html3(header, res):
@@ -576,7 +578,7 @@ def print_markdown(header, res):
     res.insert(0, header)
     res = [[deal_html_elem(e) for e in row] for row in res]
     max_length_each_fields = get_max_length_each_fields(res, str_width)
-    res.insert(1, ['-' * l for l in max_length_each_fields])
+    res.insert(1, [('-' * l, l) for l in max_length_each_fields])
     align_list = [Align.ALIGN_LEFT for i in range(len(header))]
     for index, row in enumerate(res):
         print(table_row_str(row, max_length_each_fields, align_list, Color.NO_COLOR))
@@ -776,7 +778,7 @@ def print_table(header, res, split_row_char='-', start_func=default_print_start,
     max_row_length = sum(max_length_each_fields)
     # 表格的宽度(数据长度加上分割线)
     table_width = 1 + max_row_length + 3 * len(header)
-    space_list_down = [split_row_char * i for i in max_length_each_fields]
+    space_list_down = [(split_row_char * i, i) for i in max_length_each_fields]
     default_align = [Align.ALIGN_LEFT for i in range(len(header))]
     start_func(table_width)
     # 打印表格的上顶线
