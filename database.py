@@ -12,6 +12,7 @@ import base64
 import pymssql
 import pymysql
 import hashlib
+import platform
 import traceback
 from enum import Enum
 from datetime import datetime
@@ -173,7 +174,7 @@ def write_history(option, content, stat):
     proc_home = get_proc_home()
     file = os.path.join(proc_home, filename)
     time = datetime.now().strftime('%H:%M:%S')
-    data = f'{time}|{option}|{content}|{stat.value}\n'
+    data = f'{time}\0\0{option}\0\0{content}\0\0{stat.value}\n'
     with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='a+', encoding='UTF-8') as history_file:
@@ -198,7 +199,7 @@ def read_history():
 def show_history(fold):
     try:
         table_head = ['time', 'option', 'value', 'stat']
-        res = [list(map(lambda cell: cell.replace("\n", ""), line.split('|'))) for line in read_history()]
+        res = [list(map(lambda cell: cell.replace("\n", ""), line.split('\0\0'))) for line in read_history()]
         print_result_set(table_head, res, columns, fold, None)
         write_history('history', out_format, Stat.OK)
     except BaseException as e:
@@ -315,21 +316,25 @@ def str_width(any_str):
 
 
 def table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_char='|'):
-    end_str = f' {split_char} '
-    print_data = [split_char, ' ']
-    for index, e in enumerate(row):
-        space_num = abs(e[1] - head_length[index])
-        align_type = align_list[index]
-        if space_num == 0:
-            print_data.extend((color.wrap(e[0]), end_str))
-        elif align_type == Align.ALIGN_RIGHT:
-            print_data.extend((' ' * space_num, color.wrap(e[0]), end_str))
-        elif align_type == Align.ALIGN_LEFT:
-            print_data.extend((color.wrap(e[0]), ' ' * space_num, end_str))
-        else:
-            half_space_num = space_num >> 1
-            print_data.extend((' ' * half_space_num, color.wrap(e[0]), ' ' * (space_num - half_space_num), end_str))
-    return ''.join(print_data)
+    def _table_row_str():
+        end_str = f' {split_char} '
+        yield f'{split_char} '
+        for e, width, align_type in zip(row, head_length, align_list):
+            space_num = abs(e[1] - width)
+            if space_num == 0:
+                yield color.wrap(e[0])
+            elif align_type == Align.ALIGN_RIGHT:
+                yield f"{' ' * space_num}{color.wrap(e[0])}"
+            elif align_type == Align.ALIGN_LEFT:
+                yield f"{color.wrap(e[0])}{' ' * space_num}"
+            else:
+                half_space_num = space_num >> 1
+                yield ' ' * half_space_num
+                yield color.wrap(e[0])
+                yield ' ' * (space_num - half_space_num)
+            yield end_str
+
+    return ''.join(_table_row_str())
 
 
 def get_max_length_each_fields(rows, func):
@@ -352,7 +357,7 @@ def list_tables():
     conn, conf = get_connection()
     if conn is None:
         return
-    run_sql(get_list_tab_sql(conf['servertype'], conf['database']), conn, False, [0])
+    run_sql(get_list_tab_sql(conf['servertype'], conf['database']), conn, False)
     conn.close()
 
 
@@ -361,7 +366,7 @@ def print_create_table(server_type, conn, tab_name):
         effect_rows, description, res = exe_no_query(f'show create table {tab_name}', conn)
         if not res:
             return
-        print(res[0][0])
+        print(res[0][1] if len(res[0]) == 2 else res[0][0])
 
     def print_create_table_sqlserver():
         res_list = []
@@ -404,8 +409,7 @@ def print_create_table(server_type, conn, tab_name):
 
 
 def print_table_description(conf, conn, tab_name, columns, fold):
-    sql = f"""select COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT " \
-          "from information_schema.columns where table_schema = '{conf['database']}' and table_name = '{tab_name}' """
+    sql = f"""select COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT from information_schema.columns where table_schema = '{conf['database']}' and table_name = '{tab_name}'"""
     header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
     if conf['servertype'] == 'sqlserver':
         sql = f"""SELECT col.name AS name, t.name AS type, isc.CHARACTER_MAXIMUM_LENGTH,CASE WHEN col.isnullable = 1 THEN 'YES' ELSE 'NO' END AS 允许空,CASE WHEN EXISTS ( SELECT 1 FROM dbo.sysindexes si INNER JOIN dbo.sysindexkeys sik ON si.id = sik.id AND si.indid = sik.indid INNER JOIN dbo.syscolumns sc ON sc.id = sik.id AND sc.colid = sik.colid INNER JOIN dbo.sysobjects so ON so.name = si.name AND so.xtype = 'PK' WHERE sc.id = col.id AND sc.colid = col.colid ) THEN 'YES' ELSE '' END AS 是否主键, comm.text AS 默认值 , CASE  WHEN COLUMNPROPERTY(col.id, col.name, 'IsIdentity') = 1 THEN 'auto_increment' ELSE '' END AS Extra, ISNULL(ep.value, '') AS 列说明 FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype = t.xusertype INNER JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN dbo.syscomments comm ON col.cdefault = comm.id LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' LEFT JOIN sys.extended_properties epTwo ON obj.id = epTwo.major_id AND epTwo.minor_id = 0 AND epTwo.name = 'MS_Description' LEFT JOIN information_schema.columns isc ON obj.name = isc.TABLE_NAME AND col.name = isc.COLUMN_NAME WHERE isc.TABLE_CATALOG = '{conf['database']}' AND obj.name = '{tab_name}' ORDER BY col.colorder"""
@@ -565,8 +569,8 @@ def print_markdown(header, res):
     res.insert(0, header)
     res = [[deal_html_elem(e) for e in row] for row in res]
     max_length_each_fields = get_max_length_each_fields(res, str_width)
-    res.insert(1, [('-' * l, l) for l in max_length_each_fields])
-    align_list = [Align.ALIGN_LEFT for i in range(len(header))]
+    res.insert(1, map(lambda l: ('-' * l, l), max_length_each_fields))
+    align_list = [Align.ALIGN_LEFT for i in header]
     for row in res:
         print(table_row_str(row, max_length_each_fields, align_list, Color.NO_COLOR))
 
@@ -622,8 +626,7 @@ def run_one_sql(sql: str, fold=True, columns=None):
 
 
 def scan_table(table_name, fold=True, columns=None):
-    sql = f"select * from {table_name}"
-    run_one_sql(sql, fold, columns)
+    run_one_sql(f"select * from {table_name}", fold, columns)
 
 
 def print_result_set(header, res, columns, fold, sql):
@@ -633,7 +636,9 @@ def print_result_set(header, res, columns, fold, sql):
         print(WARN_COLOR.wrap('Empty Sets!'))
         return
     header, res = before_print(header, res, columns, fold)
-    if out_format == 'sql' and sql is not None:
+    if out_format == 'table':
+        print_table(header, res)
+    elif out_format == 'sql' and sql is not None:
         print_insert_sql(header, res, get_tab_name_from_sql(sql))
     elif out_format == 'json':
         print_json(header, res)
@@ -663,8 +668,6 @@ def print_result_set(header, res, columns, fold, sql):
 
         print_table(header, res, start_func=empty_start_func,
                     after_print_row_func=empty_after_print_row, end_func=empty_end_func)
-    elif out_format == 'table':
-        print_table(header, res)
     else:
         print(ERROR_COLOR.wrap(f'Invalid print format : "{out_format}"'))
 
@@ -1169,6 +1172,8 @@ def parse_args(args):
 
 
 if __name__ == '__main__':
+    if platform.system().lower() == 'windows':
+        disable_color()
     try:
         opt, columns, fold, option_val = parse_args(sys.argv)
         if opt in {'info', ''}:
@@ -1202,7 +1207,7 @@ if __name__ == '__main__':
         elif opt == 'test':
             test()
         elif opt == 'version':
-            print('db 2.0.1')
+            print('db 2.0.2')
         else:
             print(ERROR_COLOR.wrap("Invalid operation !"))
             print_usage(error_condition=True)
