@@ -99,16 +99,15 @@ class Stat(Enum):
 
 
 FOLD_LIMIT = 50
-FOLD_REPLACE_STR = "..."
 SHOW_BOTTOM_THRESHOLD = 150
 DATA_COLOR = Color.NO_COLOR
 TABLE_HEAD_COLOR = Color.RED
 INFO_COLOR = Color.GREEN
 ERROR_COLOR = Color.RED
 WARN_COLOR = Color.KHAKI
-FOLD_COLOR = Color.BLACK_WHITE_TWINKLE
-NULL_COLOR = Color.BLACK_WHITE_TWINKLE
-
+NULL_STR = Color.BLACK_WHITE_TWINKLE.wrap('NULL')
+FOLD_REPLACE_STR = Color.BLACK_WHITE_TWINKLE.wrap("...")
+FOLD_COLOR_LENGTH = len(Color.BLACK_WHITE_TWINKLE.wrap(""))
 config = ('env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit')
 
 
@@ -147,7 +146,7 @@ def show_database_info(info):
         start_info_msg = '[DATABASE INFO]'
         f = (table_width - len(start_info_msg)) >> 1
         b = table_width - len(start_info_msg) - f
-        print(f'{"#" * f}{start_info_msg}{"#"* b}')
+        print(f'{"#" * f}{start_info_msg}{"#" * b}')
 
     def print_end_info(table_width, total):
         print('#' * table_width)
@@ -228,6 +227,7 @@ def get_connection():
                                    autocommit=config.get('autocommit', False)), config
         else:
             print(ERROR_COLOR.wrap(f"servertype error! servertype={server_type}"))
+            return None, config
     except BaseException as e:
         print(ERROR_COLOR.wrap(e))
         return None, config
@@ -274,7 +274,6 @@ def exe_query(sql, conn):
 
 
 def exe_no_query(sql, conn):
-    sql = sql.strip()
     effect_rows, description, res = None, None, []
     try:
         cur = conn.cursor()
@@ -306,18 +305,13 @@ def calc_char_width(char):
 
 
 def str_width(any_str):
-    if any_str == NULL_COLOR.wrap('NULL'):
+    if any_str == NULL_STR:
         return 4
     l = 0
-    fold_color_str = FOLD_COLOR.wrap(FOLD_REPLACE_STR)
-    color_len = len(FOLD_COLOR.wrap('')) if any_str.endswith(fold_color_str) else 0
+    color_len = FOLD_COLOR_LENGTH if any_str.endswith(FOLD_REPLACE_STR) else 0
     for char in any_str:
         l += calc_char_width(char)
     return l - color_len
-
-
-def isdigit(e):
-    return isinstance(e, int) or isinstance(e, float)
 
 
 def table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_char='|'):
@@ -334,8 +328,7 @@ def table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_char
             print_data.extend((color.wrap(e[0]), ' ' * space_num, end_str))
         else:
             half_space_num = space_num >> 1
-            left_space_num = space_num - half_space_num
-            print_data.extend((' ' * half_space_num, color.wrap(e[0]), ' ' * left_space_num, end_str))
+            print_data.extend((' ' * half_space_num, color.wrap(e[0]), ' ' * (space_num - half_space_num), end_str))
     return ''.join(print_data)
 
 
@@ -365,44 +358,44 @@ def list_tables():
 
 def print_create_table(server_type, conn, tab_name):
     def print_create_table_mysql():
-        sql = f'show create table {tab_name}'
-        effect_rows, description, res = exe_no_query(sql, conn)
-        header, res = before_print(get_table_head_from_description(description), res, [1], fold=False)
+        effect_rows, description, res = exe_no_query(f'show create table {tab_name}', conn)
+        if not res:
+            return
         print(res[0][0])
 
     def print_create_table_sqlserver():
+        res_list = []
         sql = f"select * from information_schema.columns where table_name = '{tab_name}'"
         sql2 = f"sp_columns {tab_name}"
         effect_rows, description, res = exe_no_query(sql, conn)
+        if not res:
+            return
         effect_rows2, description2, res2 = exe_no_query(sql2, conn)
         header, res = before_print(get_table_head_from_description(description), res, None, fold=False)
         header2, res2 = before_print(get_table_head_from_description(description2), res2, None, fold=False)
-        print(f"CREATE TABLE [{res[0][0]}].[{res[0][1]}].[{res[0][2]}] (")
+        res_list.append(f"CREATE TABLE [{res[0][0]}].[{res[0][1]}].[{res[0][2]}] (\n")
         for index, (row, row2) in enumerate(zip(res, res2)):
-            colum_name = row[3]
             data_type = row[7] if row2[5] in ('ntext',) else row2[5]
-            print(f"  [{colum_name}] {data_type}", end="")
+            res_list.append(f"  [{row[3]}] {data_type}")
             if row[8] is not None and data_type not in ('text',):
-                print(f"({'max' if row[8] == -1 else row[8]})", end="")
+                res_list.append(f"({'max' if row[8] == -1 else row[8]})")
             elif data_type in ('decimal', 'numeric'):
-                print(f"({row[10]},{row[12]})", end="")
+                res_list.append(f"({row[10]},{row[12]})")
             elif data_type.endswith("identity"):
                 ident_seed = exe_no_query(f"SELECT IDENT_SEED ('{tab_name}')", conn)[2][0][0]
                 ident_incr = exe_no_query(f"SELECT IDENT_INCR('{tab_name}')", conn)[2][0][0]
-                print(f"({ident_seed},{ident_incr})", end="")
+                res_list.append(f"({ident_seed},{ident_incr})")
             if row2[12] is not None:
-                print(f" DEFAULT {row2[12]}", end="")
+                res_list.append(f" DEFAULT {row2[12]}")
             if row[19] is not None:
-                print(f" COLLATE {row[19]}", end="")
+                res_list.append(f" COLLATE {row[19]}")
             if row[6] == 'YES':
-                print(" NULL", end="")
-            if row[6] == 'NO':
-                print(" NOT NULL", end="")
-            if index == len(res) - 1:
-                print("")
-            else:
-                print(",")
-        print(")")
+                res_list.append(" NULL")
+            elif row[6] == 'NO':
+                res_list.append(" NOT NULL")
+            res_list.append("," if index != len(res) - 1 else "\n")
+        res_list.append(")\n")
+        print(''.join(res_list))
 
     if server_type == 'mysql':
         print_create_table_mysql()
@@ -455,7 +448,7 @@ def get_table_head_from_description(description):
 def print_json(header, res):
     global human
     for row in res:
-        row = [e if isdigit(e) or isinstance(e, str) else str(e) for e in row]
+        row = [e if isinstance(e, (str, int, float)) else str(e) for e in row]
         print(json.dumps(dict(zip(header, row)), indent=2, ensure_ascii=False)) \
             if human else print(json.dumps(dict(zip(header, row)), ensure_ascii=False))
 
@@ -479,9 +472,10 @@ def print_header_with_html(header):
 
 
 def deal_html_elem(e):
-    e = "" if e is None else str(e)
-    return html.escape(e).replace('\r\n', '<br>').replace('\0','\\0').replace('\b','\\b') \
-        .replace('\n', '<br>').replace('\t', '&ensp;' * 4) if isinstance(e, str) else e
+    if e is None:
+        return "NULL"
+    return html.escape(e).replace('\r\n', '<br>').replace('\0', '\\0').replace('\b', '\\b') \
+        .replace('\n', '<br>').replace('\t', '&ensp;' * 4) if isinstance(e, str) else str(e)
 
 
 def print_html3(header, res):
@@ -529,18 +523,15 @@ def print_html4(header, res):
     for index, head in enumerate(header):
         if index == 0:
             print("<thead><tr>", end="")
-        head = "" if head is None else head
-        print(f"<th>{head}</th>", end="")
+        print(f"<th>{'' if head is None else head}</th>", end="")
     else:
         print("</tr></thead>")
     print('<tbody>')
     for row in res:
-        for index, e in enumerate(row):
-            if index == 0:
-                print('<tr>', end='')
+        print('<tr>', end='')
+        for e in row:
             print(f"<td>{deal_html_elem(e)}</td>", end="")
-        else:
-            print("</tr>")
+        print("</tr>")
     print("</tbody>\n</table>")
 
 
@@ -576,23 +567,27 @@ def print_markdown(header, res):
     max_length_each_fields = get_max_length_each_fields(res, str_width)
     res.insert(1, [('-' * l, l) for l in max_length_each_fields])
     align_list = [Align.ALIGN_LEFT for i in range(len(header))]
-    for index, row in enumerate(res):
+    for row in res:
         print(table_row_str(row, max_length_each_fields, align_list, Color.NO_COLOR))
 
 
 def run_sql(sql: str, conn, fold=True, columns=None):
     sql = sql.strip()
-    if sql.lower().startswith('select'):
+    if sql.lower().startswith(('select', 'show')):
         description, res = exe_query(sql, conn)
         print_result_set(get_table_head_from_description(description), res, columns, fold, sql)
     else:
-        run_no_sql(sql, conn, fold, columns)
+        effect_rows, description, res = exe_no_query(sql, conn)
+        if description and res:
+            print_result_set(get_table_head_from_description(description), res, columns, fold, sql)
+        if effect_rows and out_format == 'table':
+            print(INFO_COLOR.wrap(f'Effect rows:{effect_rows}'))
 
 
 def deal_bin(res):
     for row in res:
         for index, e in enumerate(row):
-            if isinstance(e, bytearray) or isinstance(e, bytes):
+            if isinstance(e, (bytearray, bytes)):
                 try:
                     row[index] = str(e, 'utf8')
                 except Exception as ex:
@@ -603,7 +598,7 @@ def before_print(header, res, columns, fold=True):
     """
         需要注意不能改变原本数据的类型，除了需要替换成其它数据的情况
     """
-    res = [] if res is None else [list(row) for row in res]
+    res = [] if res is None else [row if isinstance(row, list) else list(row) for row in res]
     res.insert(0, header if isinstance(header, list) else list(header))
     res = [[line[i] for i in columns] for line in res] if columns else res
     global limit_rows
@@ -614,7 +609,7 @@ def before_print(header, res, columns, fold=True):
     deal_bin(res)
     res = deal_human(res) if human else res
     res = [[e if len(str(e)) < FOLD_LIMIT else
-            str(e)[:FOLD_LIMIT - 3] + FOLD_COLOR.wrap(FOLD_REPLACE_STR) for e in line] for line in res] if fold else res
+            f'{str(e)[:FOLD_LIMIT - 3]}{FOLD_REPLACE_STR}' for e in row] for row in res] if fold else res
     return res.pop(0), res
 
 
@@ -674,16 +669,6 @@ def print_result_set(header, res, columns, fold, sql):
         print(ERROR_COLOR.wrap(f'Invalid print format : "{out_format}"'))
 
 
-def run_no_sql(no_sql, conn, fold=True, columns=None):
-    no_sql = no_sql.strip()
-    effect_rows, description, res = exe_no_query(no_sql, conn)
-    res = list(res) if res else res
-    if description and res:
-        print_result_set(get_table_head_from_description(description), res, columns, fold, no_sql)
-    if effect_rows and out_format == 'table':
-        print(INFO_COLOR.wrap(f'Effect rows:{effect_rows}'))
-
-
 def deal_human(rows):
     def _human_time(time_stamp):
         if time_stamp is None:
@@ -718,10 +703,11 @@ def print_insert_sql(header, res, tab_name):
         for index, e in enumerate(row):
             if e is None:
                 row[index] = "NULL"
-            elif isdigit(e):
+            elif isinstance(e, (int, float)):
                 row[index] = str(e)
             elif isinstance(e, str):
-                row[index] = "'{}'".format(e.replace("'", "''"))
+                row[index] = "'{}'".format(e.replace("'", "''").replace('\r', '\\r').replace('\n', '\\n')
+                                           .replace('\t', '\\t').replace('\0', '\\0').replace('\b', '\\b'))
             else:
                 print(WARN_COLOR.wrap(f"TYPE WARN:{type(e)}"))
                 row[index] = f"'{e}'"
@@ -748,26 +734,26 @@ def default_after_print_row(row_num, row_total_num, max_row_length, split_char, 
 
 def print_table(header, res, split_row_char='-', start_func=default_print_start,
                 after_print_row_func=default_after_print_row, end_func=default_print_end):
-    def _deal_res(res):
-        _align_list = [Align.ALIGN_LEFT for i in range(len(res[0]))]
+    def _deal_res(res, _align_list):
         for row in res:
             for index, e in enumerate(row):
                 if isinstance(e, str):
                     row[index] = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
                         .replace('\0', '\\0').replace('\b', '\\b')
-                elif isdigit(e):
+                elif isinstance(e, (int, float)):
                     # 数字采用右对齐
                     _align_list[index] = Align.ALIGN_RIGHT
                     row[index] = str(e)
                 elif e is None:
-                    row[index] = NULL_COLOR.wrap('NULL')
+                    row[index] = NULL_STR
                 else:
                     row[index] = str(e)
         return res, _align_list
 
     row_total_num = len(res)
     res.insert(0, header)
-    res, align_list = _deal_res(res)
+    default_align = [Align.ALIGN_LEFT for i in range(len(header))]
+    res, align_list = _deal_res(res, default_align.copy())
     max_length_each_fields = get_max_length_each_fields(res, str_width)
     header = res.pop(0)
     # 数据的总长度
@@ -775,7 +761,7 @@ def print_table(header, res, split_row_char='-', start_func=default_print_start,
     # 表格的宽度(数据长度加上分割线)
     table_width = 1 + max_row_length + 3 * len(header)
     space_list_down = [(split_row_char * i, i) for i in max_length_each_fields]
-    default_align = [Align.ALIGN_LEFT for i in range(len(header))]
+
     start_func(table_width)
     # 打印表格的上顶线
     print(table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
@@ -804,14 +790,15 @@ def print_info():
 
 
 def disable_color():
-    global DATA_COLOR, TABLE_HEAD_COLOR, INFO_COLOR, ERROR_COLOR, WARN_COLOR, FOLD_COLOR, NULL_COLOR
+    global DATA_COLOR, TABLE_HEAD_COLOR, INFO_COLOR, ERROR_COLOR, WARN_COLOR, NULL_STR, FOLD_REPLACE_STR, FOLD_COLOR_LENGTH
     DATA_COLOR = Color.NO_COLOR
     TABLE_HEAD_COLOR = Color.NO_COLOR
     INFO_COLOR = Color.NO_COLOR
     WARN_COLOR = Color.NO_COLOR
     ERROR_COLOR = Color.NO_COLOR
-    FOLD_COLOR = Color.NO_COLOR
-    NULL_COLOR = Color.NO_COLOR
+    NULL_STR = 'NULL'
+    FOLD_REPLACE_STR = "..."
+    FOLD_COLOR_LENGTH = 0
 
 
 class Opt(Enum):
