@@ -261,12 +261,15 @@ def get_tab_name_from_sql(src_sql: str):
 
 def exe_query(sql, conn):
     res_list = []
-    description = None
+    description = []
     try:
         cur = conn.cursor()
         cur.execute(sql)
-        res_list.extend(cur.fetchall())
-        description = cur.description
+        description.append(cur.description)
+        res_list.append(cur.fetchall())
+        while cur.nextset():
+            description.append(cur.description)
+            res_list.append(cur.fetchall())
         write_history('sql', sql, Stat.OK)
     except BaseException as e:
         write_history('sql', sql, Stat.ERROR)
@@ -275,23 +278,26 @@ def exe_query(sql, conn):
 
 
 def exe_no_query(sql, conn):
-    effect_rows, description, res = None, None, []
+    effect_rows, description, res, success = None, [], [], False
     try:
         cur = conn.cursor()
         effect_rows = cur.execute(sql)
-        description = cur.description
-        res = None
+        description.append(cur.description)
         try:
-            res = cur.fetchall()
+            res.append(cur.fetchall())
+            while cur.nextset():
+                description.append(cur.description)
+                res.append(cur.fetchall())
         except:
             if not effect_rows and out_format == 'table':
                 print(WARN_COLOR.wrap('Empty Sets!'))
         conn.commit()
+        success = True
         write_history('sql', sql, Stat.OK)
     except BaseException as e:
         write_history('sql', sql, Stat.ERROR)
         print(ERROR_COLOR.wrap(e))
-    return effect_rows, description, res
+    return effect_rows, description, res, success
 
 
 def calc_char_width(char):
@@ -348,7 +354,7 @@ def get_max_length_each_fields(rows, func):
 
 def get_list_tab_sql(server_type, database_name):
     if server_type == 'mysql':
-        return f"SELECT TABLE_NAME FROM information_schema.tables where TABLE_SCHEMA='{database_name}'"
+        return f"SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA='{database_name}' ORDER BY TABLE_NAME"
     else:
         return "SELECT name FROM sys.tables ORDER BY name"
 
@@ -363,43 +369,55 @@ def list_tables():
 
 def print_create_table(server_type, conn, tab_name):
     def print_create_table_mysql():
-        effect_rows, description, res = exe_no_query(f'show create table {tab_name}', conn)
+        res = exe_no_query(f'show create table {tab_name}', conn)[2]
         if not res:
             return
-        print(res[0][1] if len(res[0]) == 2 else res[0][0])
+        print(res[0][0][1] if len(res[0][0]) == 2 else res[0][0][0])
 
     def print_create_table_sqlserver():
         res_list = []
         sql = f"select * from information_schema.columns where table_name = '{tab_name}'"
         sql2 = f"sp_columns {tab_name}"
-        effect_rows, description, res = exe_no_query(sql, conn)
-        if not res:
+        effect_rows, description, res, success = exe_no_query(sql, conn)
+        if not res or not res[0]:
+            print(ERROR_COLOR.wrap(f"{tab_name} not found!"))
             return
-        effect_rows2, description2, res2 = exe_no_query(sql2, conn)
-        header, res = before_print(get_table_head_from_description(description), res, None, fold=False)
-        header2, res2 = before_print(get_table_head_from_description(description2), res2, None, fold=False)
+        effect_rows2, description2, res2, success = exe_no_query(sql2, conn)
+        header, res = before_print(get_table_head_from_description(description), res[0], None, fold=False)
+        header2, res2 = before_print(get_table_head_from_description(description2), res2[0], None, fold=False)
+        index_dict = get_sqlserver_index_information_dict(conn, tab_name)
         res_list.append(f"CREATE TABLE [{res[0][0]}].[{res[0][1]}].[{res[0][2]}] (\n")
         for index, (row, row2) in enumerate(zip(res, res2)):
             data_type = row[7] if row2[5] in ('ntext',) else row2[5]
             res_list.append(f"  [{row[3]}] {data_type}")
+            index_col = index_dict.get(row[3], ('', '', '', '', ''))
             if row[8] is not None and data_type not in ('text',):
                 res_list.append(f"({'max' if row[8] == -1 else row[8]})")
             elif data_type in ('decimal', 'numeric'):
                 res_list.append(f"({row[10]},{row[12]})")
             elif data_type.endswith("identity"):
-                ident_seed = exe_no_query(f"SELECT IDENT_SEED ('{tab_name}')", conn)[2][0][0]
-                ident_incr = exe_no_query(f"SELECT IDENT_INCR('{tab_name}')", conn)[2][0][0]
+                ident_seed = exe_no_query(f"SELECT IDENT_SEED ('{tab_name}')", conn)[2][0][0][0]
+                ident_incr = exe_no_query(f"SELECT IDENT_INCR('{tab_name}')", conn)[2][0][0][0]
                 res_list.append(f"({ident_seed},{ident_incr})")
             if row2[12] is not None:
                 res_list.append(f" DEFAULT {row2[12]}")
             if row[19] is not None:
                 res_list.append(f" COLLATE {row[19]}")
-            if row[6] == 'YES':
-                res_list.append(" NULL")
-            elif row[6] == 'NO':
+            if row[6] == 'NO':
                 res_list.append(" NOT NULL")
-            res_list.append("," if index != len(res) - 1 else "\n")
-        res_list.append(")\n")
+            if index_col[3] == 'YES':
+                res_list.append(' primary key')
+            elif index_col[4] == 'YES':
+                res_list.append(f' constraint {index_col[2]} unique')
+            res_list.append(",\n" if index != len(res) - 1 else "\n")
+        res_list.append(");")
+        comment = exe_query(
+            f"""SELECT col.name, ep.value AS comment FROM dbo.syscolumns col JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' WHERE obj.name = '{tab_name}' AND ep.value is not NULL""",
+            conn)[1]
+        if comment:
+            for com in comment[0]:
+                res_list.append(
+                    f"""\nexec sp_addextendedproperty 'MS_Description', '{str(com[1],"utf8")}', 'SCHEMA', '{res[0][1]}', 'TABLE', '{tab_name}', 'COLUMN', '{com[0]}';""")
         print(''.join(res_list))
 
     if server_type == 'mysql':
@@ -408,19 +426,45 @@ def print_create_table(server_type, conn, tab_name):
         print_create_table_sqlserver()
 
 
+def get_sqlserver_index_information_dict(conn, tab_name):
+    """
+    :param conn:
+    :param tab_name:
+    :return: {colName:(colName,indexType,indexName,primaryKey,isUnique)}
+    """
+    index_formation = exe_query(
+        f"""SELECT columnName=C.Name,indexType=ISNULL(KC.type_desc,'Index'),indexName=IDX.Name,primaryKey=CASE WHEN IDX.is_primary_key=1 THEN 'YES' ELSE '' END,isUnique=CASE WHEN IDX.is_unique=1 THEN 'YES' ELSE '' END FROM sys.indexes IDX JOIN sys.index_columns IDXC ON IDX.object_id=IDXC.object_id AND IDX.index_id=IDXC.index_id LEFT JOIN sys.key_constraints KC ON IDX.object_id=KC.parent_object_id AND IDX.index_id = KC.unique_index_id JOIN sys.objects O ON O.object_id=IDX.object_id JOIN sys.columns C ON O.object_id=C.object_id AND O.type='U' AND O.is_ms_shipped=0 AND IDXC.Column_id=C.Column_id WHERE O.name='{tab_name}'""",
+        conn)[1]
+    return {fmt[0]: fmt for fmt in index_formation[0]} if index_formation else dict()
+
+
 def print_table_description(conf, conn, tab_name, columns, fold):
-    sql = f"""select COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT from information_schema.columns where table_schema = '{conf['database']}' and table_name = '{tab_name}'"""
+    sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT FROM information_schema.columns WHERE table_schema='{conf['database']}' AND table_name='{tab_name}'"""
     header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
     if conf['servertype'] == 'sqlserver':
-        sql = f"""SELECT col.name AS name, t.name AS type, isc.CHARACTER_MAXIMUM_LENGTH,CASE WHEN col.isnullable = 1 THEN 'YES' ELSE 'NO' END AS 允许空,CASE WHEN EXISTS ( SELECT 1 FROM dbo.sysindexes si INNER JOIN dbo.sysindexkeys sik ON si.id = sik.id AND si.indid = sik.indid INNER JOIN dbo.syscolumns sc ON sc.id = sik.id AND sc.colid = sik.colid INNER JOIN dbo.sysobjects so ON so.name = si.name AND so.xtype = 'PK' WHERE sc.id = col.id AND sc.colid = col.colid ) THEN 'YES' ELSE '' END AS 是否主键, comm.text AS 默认值 , CASE  WHEN COLUMNPROPERTY(col.id, col.name, 'IsIdentity') = 1 THEN 'auto_increment' ELSE '' END AS Extra, ISNULL(ep.value, '') AS 列说明 FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype = t.xusertype INNER JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN dbo.syscomments comm ON col.cdefault = comm.id LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' LEFT JOIN sys.extended_properties epTwo ON obj.id = epTwo.major_id AND epTwo.minor_id = 0 AND epTwo.name = 'MS_Description' LEFT JOIN information_schema.columns isc ON obj.name = isc.TABLE_NAME AND col.name = isc.COLUMN_NAME WHERE isc.TABLE_CATALOG = '{conf['database']}' AND obj.name = '{tab_name}' ORDER BY col.colorder"""
-        header = ['Name', 'Type', 'Nullable', 'Is_Primary', 'Default', 'Extra', 'Comment']
-    description, res = exe_query(sql, conn)
-    res = [list(row) for row in res]
+        sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'auto_increment' ELSE '' END Extra,ISNULL(ep.value, '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab_name}' ORDER BY col.colorder"""
+    res = exe_query(sql, conn)[1]
+    if not res or not res[0]:
+        return
+    res = list(map(lambda row: list(row), res[0]))
     if conf['servertype'] == 'sqlserver':
+        index_dict = get_sqlserver_index_information_dict(conn, tab_name)
         for row in res:
             if row[2] and row[1] not in {'text'}:
                 row[1] = f'{row[1]}({"max" if row[2] == -1 else row[2]})'
             row.pop(2)
+            t = index_dict.get(row[0], ('', '', '', '', ''))
+            if t[3] == 'YES':
+                key = 'PRI'
+            elif t[4] == 'YES':
+                key = 'UNI'
+            else:
+                key = t[1]
+            row.insert(3, key)
+            row[4] = '' if row[4] is None else row[4]
+    else:
+        for row in res:
+            row[4] = '' if row[4] is None else row[4]
     print_result_set(header, res, columns, fold, sql)
 
 
@@ -452,7 +496,7 @@ def get_table_head_from_description(description):
 def print_json(header, res):
     global human
     for row in res:
-        row = [e if isinstance(e, (str, int, float)) else str(e) for e in row]
+        row = map(lambda e: e if isinstance(e, (str, int, float)) else str(e), row)
         print(json.dumps(dict(zip(header, row)), indent=2, ensure_ascii=False)) \
             if human else print(json.dumps(dict(zip(header, row)), ensure_ascii=False))
 
@@ -546,10 +590,7 @@ def print_xml(header, res):
     for row in res:
         print("<RECORD>", end=end)
         for h, e in zip(header, row):
-            if e is None:
-                print(f"{intend}<{h}/>", end=end)
-            else:
-                print(f"{intend}<{h}>{e}</{h}>", end=end)
+            print(f"{intend}<{h}/>" if e is None else f"{intend}<{h}>{e}</{h}>", end=end)
         print("</RECORD>")
 
 
@@ -577,15 +618,17 @@ def print_markdown(header, res):
 
 def run_sql(sql: str, conn, fold=True, columns=None):
     sql = sql.strip()
+    description, res, effect_rows = None, None, None
     if sql.lower().startswith(('select', 'show')):
         description, res = exe_query(sql, conn)
-        print_result_set(get_table_head_from_description(description), res, columns, fold, sql)
     else:
-        effect_rows, description, res = exe_no_query(sql, conn)
-        if description and res:
-            print_result_set(get_table_head_from_description(description), res, columns, fold, sql)
-        if effect_rows and out_format == 'table':
-            print(INFO_COLOR.wrap(f'Effect rows:{effect_rows}'))
+        effect_rows, description, res, success = exe_no_query(sql, conn)
+    if description and res:
+        for index, (d, r) in enumerate(zip(description, res)):
+            print_result_set(get_table_head_from_description(d), r, columns, fold, sql, index)
+            print()
+    if effect_rows and out_format == 'table':
+        print(INFO_COLOR.wrap(f'Effect rows:{effect_rows}'))
 
 
 def deal_bin(res):
@@ -629,7 +672,7 @@ def scan_table(table_name, fold=True, columns=None):
     run_one_sql(f"select * from {table_name}", fold, columns)
 
 
-def print_result_set(header, res, columns, fold, sql):
+def print_result_set(header, res, columns, fold, sql, index=0):
     if not header:
         return
     if not res and out_format == 'table':
@@ -637,7 +680,10 @@ def print_result_set(header, res, columns, fold, sql):
         return
     header, res = before_print(header, res, columns, fold)
     if out_format == 'table':
-        print_table(header, res)
+        def _start(table_width):
+            print(INFO_COLOR.wrap(f'Result Sets [{index}]:'))
+
+        print_table(header, res, start_func=_start)
     elif out_format == 'sql' and sql is not None:
         print_insert_sql(header, res, get_tab_name_from_sql(sql))
     elif out_format == 'json':
@@ -716,10 +762,11 @@ def print_insert_sql(header, res, tab_name):
                 row[index] = f"'{e}'"
         return row
 
+    if not res:
+        return
     header = list(map(lambda x: str(x), header))
-    template = f"INSERT INTO {tab_name} ({','.join(header)}) VALUES ({{}});"
-    for row in res:
-        print(template.format(",".join(_case_for_sql(row))))
+    print(f"""INSERT INTO {tab_name} ({','.join(header)}) VALUES {{}};"""
+          .format(",\n".join(map(lambda row: f'({",".join(_case_for_sql(row))})', res))))
 
 
 def default_print_start(table_width):
@@ -1003,18 +1050,21 @@ def load(path):
             if not sql:
                 return 0, 0
             effect_rows = cur.execute(sql)
-            description = cur.description
-            res = None
+            description, res = [], []
             try:
-                res = cur.fetchall()
+                description.append(cur.description)
+                res.append(cur.fetchall())
+                while cur.nextset():
+                    description.append(cur.description)
+                    res.append(cur.fetchall())
             except:
-                print(WARN_COLOR.wrap(f'effect_rows:{effect_rows}'))
-            if None not in (res, description):
-                header, res = before_print(get_table_head_from_description(description), res, None, False)
-                print_result_set(header, res, None, False, sql)
+                if effect_rows:
+                    print(WARN_COLOR.wrap(f'Effect rows:{effect_rows}'))
+            for r, d in zip(res, description):
+                print_result_set(get_table_head_from_description(d), r, None, False, sql)
             return 1, 0
         except BaseException as e:
-            print(f"sql:{ERROR_COLOR.wrap(sql)}, error:{ERROR_COLOR.wrap(e)}")
+            print(f"SQL:{ERROR_COLOR.wrap(sql)}, ERROR:{ERROR_COLOR.wrap(e)}")
             return 0, 1
 
     try:
@@ -1031,7 +1081,7 @@ def load(path):
                     if not t_sql or t_sql.startswith('--'):
                         continue
                     elif t_sql.lower().startswith(('insert', 'create', 'update', 'select', 'delete', 'alter', 'set',
-                                                   'drop', 'go', 'use', 'if', 'with', 'show', 'desc', 'grant')):
+                                                   'drop', 'go', 'use', 'if', 'with', 'show', 'desc', 'grant', 'exec')):
                         if sql == '':
                             sql = line
                             continue
@@ -1100,7 +1150,7 @@ def export():
         tab_list = exe_query(get_list_tab_sql(conf['servertype'], conf['database']), conn)[1]
         split_line = get_print_split_line_with_format()
         print_template = get_print_template_with_format()
-        for tab in tab_list:
+        for tab in tab_list[0]:
             if export_type in {'all', 'ddl'}:
                 print(print_template.format(f'Table structure for table "{tab[0]}"'))
                 print_table_schema(conf, conn, tab[0], columns, fold, export_type == 'ddl')
@@ -1207,7 +1257,7 @@ if __name__ == '__main__':
         elif opt == 'test':
             test()
         elif opt == 'version':
-            print('db 2.0.2')
+            print('db 2.0.3')
         else:
             print(ERROR_COLOR.wrap("Invalid operation !"))
             print_usage(error_condition=True)
