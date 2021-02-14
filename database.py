@@ -18,11 +18,10 @@ from enum import Enum
 from datetime import datetime
 
 widths = [
-    (126, 1), (159, 0), (687, 1), (710, 0), (711, 1), (727, 0), (733, 1), (879, 0),
-    (1154, 1), (1161, 0), (4347, 1), (4447, 2), (7467, 1), (7521, 0), (8369, 1), (8426, 0),
-    (9000, 1), (9002, 2), (11021, 1), (12350, 2), (12351, 1), (12438, 2), (12442, 0), (19893, 2),
-    (19967, 1), (55203, 2), (63743, 1), (64106, 2), (65039, 1), (65059, 0), (65131, 2), (65279, 1),
-    (65376, 2), (65500, 1), (65510, 2), (120831, 1), (262141, 2), (1114109, 1),
+    (126, 1), (159, 0), (687, 1), (710, 0), (711, 1), (727, 0), (733, 1), (879, 0), (1154, 1), (1161, 0), (4347, 1),
+    (4447, 2), (7467, 1), (7521, 0), (8369, 1), (8426, 0), (9000, 1), (9002, 2), (11021, 1), (12350, 2), (12351, 1),
+    (12438, 2), (12442, 0), (19893, 2), (19967, 1), (55203, 2), (63743, 1), (64106, 2), (65039, 1), (65059, 0),
+    (65131, 2), (65279, 1), (65376, 2), (65500, 1), (65510, 2), (120831, 1), (262141, 2), (1114109, 1),
 ]
 
 
@@ -53,26 +52,6 @@ class Align(Enum):
 
 
 class Color(Enum):
-    """
-      格式：\033[显示方式;前景色;背景色m要打印的字符串\033[0m
-      前景色	背景色	颜色
-      30	40	黑色
-      31	41	红色
-      32	42	绿色
-      33	43	黃色
-      34	44	蓝色
-      35	45	紫红色
-      36	46	青蓝色
-      37	47	白色
-
-      显示方式	意义
-          0	终端默认设置
-          1	高亮显示
-          4	使用下划线
-          5	闪烁
-          7	反白显示
-          8	不可见
-      """
     OFF_WHITE = "\033[29;1m{}\033[0m"
     WHITE = "\033[30;1m{}\033[0m"
     RED = "\033[31;1m{}\033[0m"
@@ -109,32 +88,18 @@ WARN_COLOR = Color.KHAKI
 NULL_STR = Color.BLACK_WHITE_TWINKLE.wrap('NULL')
 FOLD_REPLACE_STR = Color.BLACK_WHITE_TWINKLE.wrap("...")
 FOLD_COLOR_LENGTH = len(Color.BLACK_WHITE_TWINKLE.wrap(""))
-config = ('env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit')
+config = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit']
 
 
 def check_conf(dbconf: dict):
     if dbconf['use']['conf'] == DEFAULT_CONF:
         print(WARN_COLOR.wrap('please set conf!'))
         return False
-    conf = dbconf['conf'][dbconf['use']['env']][dbconf['use']['conf']]
-    if 'servertype' not in conf.keys():
-        print(WARN_COLOR.wrap('please set servertype!'))
-        return False
-    elif 'host' not in conf.keys():
-        print(WARN_COLOR.wrap('please set host!'))
-        return False
-    elif 'port' not in conf.keys():
-        print(WARN_COLOR.wrap('please set port!'))
-        return False
-    elif 'user' not in conf.keys():
-        print(WARN_COLOR.wrap('please set user!'))
-        return False
-    elif 'password' not in conf.keys():
-        print(WARN_COLOR.wrap('please set password!'))
-        return False
-    elif 'database' not in conf.keys():
-        print(WARN_COLOR.wrap('please set database!'))
-        return False
+    conf_keys = dbconf['conf'][dbconf['use']['env']][dbconf['use']['conf']].keys()
+    for conf in config[2:8]:
+        if conf not in conf_keys:
+            print(WARN_COLOR.wrap(f'please set {conf}!'))
+            return False
     return True
 
 
@@ -352,9 +317,9 @@ def get_max_length_each_fields(rows, func):
     return length_head
 
 
-def get_list_tab_sql(server_type, database_name):
+def get_list_tab_sql(server_type, dbName):
     if server_type == 'mysql':
-        return f"SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA='{database_name}' ORDER BY TABLE_NAME"
+        return f"SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA='{dbName}' ORDER BY TABLE_NAME"
     else:
         return "SELECT name FROM sys.tables ORDER BY name"
 
@@ -367,57 +332,66 @@ def list_tables():
     conn.close()
 
 
-def print_create_table(server_type, conn, tab_name):
+def print_create_table(server_type, conn, tbName):
     def print_create_table_mysql():
-        res = exe_no_query(f'show create table {tab_name}', conn)[2]
+        res = exe_no_query(f'show create table {tbName}', conn)[2]
         if not res:
             return
         print(res[0][0][1] if len(res[0][0]) == 2 else res[0][0][0])
 
     def print_create_table_sqlserver():
         res_list = []
-        sql = f"select * from information_schema.columns where table_name = '{tab_name}'"
-        sql2 = f"sp_columns {tab_name}"
+        sql, sql2 = f"select * from information_schema.columns where table_name='{tbName}'", f"sp_columns {tbName}"
         effect_rows, description, res, success = exe_no_query(sql, conn)
         if not res or not res[0]:
-            print(ERROR_COLOR.wrap(f"{tab_name} not found!"))
+            print(ERROR_COLOR.wrap(f"{tbName} not found!"))
             return
         effect_rows2, description2, res2, success = exe_no_query(sql2, conn)
         header, res = before_print(get_table_head_from_description(description), res[0], None, fold=False)
         header2, res2 = before_print(get_table_head_from_description(description2), res2[0], None, fold=False)
-        index_dict = get_sqlserver_index_information_dict(conn, tab_name)
+        indexDict = get_sqlserver_index_information_dict(conn, tbName)
+        primary_key, mul_unique = [], {}
+        for k, v in indexDict.items():
+            if v[3] == 'YES':
+                primary_key.append(k)
+            elif v[4] == 'YES':
+                mul_unique[v[2]] = l = mul_unique.get(v[2], [])
+                l.append(k)
         res_list.append(f"CREATE TABLE [{res[0][0]}].[{res[0][1]}].[{res[0][2]}] (\n")
         for index, (row, row2) in enumerate(zip(res, res2)):
-            data_type = row[7] if row2[5] in ('ntext',) else row2[5]
-            res_list.append(f"  [{row[3]}] {data_type}")
-            index_col = index_dict.get(row[3], ('', '', '', '', ''))
-            if row[8] is not None and data_type not in ('text',):
+            col_name, data_type = row2[3], row[7]
+            res_list.append(f"  [{col_name}] {data_type}")
+            index_col = indexDict.get(col_name, ('', '', '', '', ''))
+            is_primary_key = index_col[3] == 'YES'
+            if row[8] is not None and data_type not in ('text', 'ntext', 'xml'):
                 res_list.append(f"({'max' if row[8] == -1 else row[8]})")
             elif data_type in ('decimal', 'numeric'):
                 res_list.append(f"({row[10]},{row[12]})")
-            elif data_type.endswith("identity"):
-                ident_seed = exe_no_query(f"SELECT IDENT_SEED ('{tab_name}')", conn)[2][0][0][0]
-                ident_incr = exe_no_query(f"SELECT IDENT_INCR('{tab_name}')", conn)[2][0][0][0]
-                res_list.append(f"({ident_seed},{ident_incr})")
+            if row2[5].endswith("identity"):
+                idSeed, idIncr = exe_no_query(f"SELECT IDENT_SEED('{tbName}'),IDENT_INCR('{tbName}')", conn)[2][0][0]
+                res_list.append(f" identity({idSeed},{idIncr})")
             if row2[12] is not None:
                 res_list.append(f" DEFAULT {row2[12]}")
-            if row[19] is not None:
-                res_list.append(f" COLLATE {row[19]}")
-            if row[6] == 'NO':
+            if row[6] == 'NO' and not is_primary_key:
                 res_list.append(" NOT NULL")
-            if index_col[3] == 'YES':
-                res_list.append(' primary key')
-            elif index_col[4] == 'YES':
-                res_list.append(f' constraint {index_col[2]} unique')
-            res_list.append(",\n" if index != len(res) - 1 else "\n")
+            if index == len(res) - 1:
+                res_list.append(f",\n  primary key({','.join(primary_key)})" if primary_key else '')
+                res_list.append(',\n' if mul_unique else '')
+                res_list.append(',\n'.join([f"  constraint {k} unique({','.join(v)})" for k, v in mul_unique.items()]))
+                res_list.append('\n')
+            else:
+                res_list.append(",\n")
         res_list.append(");")
         comment = exe_query(
-            f"""SELECT col.name, ep.value AS comment FROM dbo.syscolumns col JOIN dbo.sysobjects obj ON col.id = obj.id AND obj.xtype = 'U' AND obj.status >= 0 LEFT JOIN sys.extended_properties ep ON col.id = ep.major_id AND col.colid = ep.minor_id AND ep.name = 'MS_Description' WHERE obj.name = '{tab_name}' AND ep.value is not NULL""",
+            f"""(SELECT col.name,ep.value,ep.name comment,ep.minor_id FROM dbo.syscolumns col JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id
+ WHERE obj.name='{tbName}' AND ep.value is not NULL) union (select obj.name,ep.value,ep.name comment,ep.minor_id from dbo.sysobjects obj join sys.extended_properties ep on obj.id=ep.major_id where ep.minor_id=0 and obj.xtype='U' AND obj.status>=0 AND obj.name='{tbName}')""",
             conn)[1]
         if comment:
             for com in comment[0]:
                 res_list.append(
-                    f"""\nexec sp_addextendedproperty 'MS_Description', '{str(com[1],"utf8")}', 'SCHEMA', '{res[0][1]}', 'TABLE', '{tab_name}', 'COLUMN', '{com[0]}';""")
+                    f"""\nexec sp_addextendedproperty '{com[2]}', '{str(com[1], "utf8")}', 'SCHEMA', '{res[0][1]}', 'TABLE', '{tbName}';""" if
+                    com[3] == 0 else \
+                        f"""\nexec sp_addextendedproperty '{com[2]}', '{str(com[1], "utf8")}', 'SCHEMA', '{res[0][1]}', 'TABLE', '{tbName}', 'COLUMN', '{com[0]}';""")
         print(''.join(res_list))
 
     if server_type == 'mysql':
@@ -439,25 +413,28 @@ def get_sqlserver_index_information_dict(conn, tab_name):
 
 
 def print_table_description(conf, conn, tab_name, columns, fold):
-    sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT FROM information_schema.columns WHERE table_schema='{conf['database']}' AND table_name='{tab_name}'"""
     header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
+    sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT FROM information_schema.columns WHERE table_schema='{conf['database']}' AND table_name='{tab_name}'"""
     if conf['servertype'] == 'sqlserver':
-        sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'auto_increment' ELSE '' END Extra,ISNULL(ep.value, '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab_name}' ORDER BY col.colorder"""
+        sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'auto_increment' ELSE '' END Extra,ISNULL(ep.value, '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab_name}' ORDER BY col.colorder"""
     res = exe_query(sql, conn)[1]
     if not res or not res[0]:
+        print(ERROR_COLOR.wrap(f"{tab_name} not found!"))
         return
     res = list(map(lambda row: list(row), res[0]))
     if conf['servertype'] == 'sqlserver':
         index_dict = get_sqlserver_index_information_dict(conn, tab_name)
         for row in res:
-            if row[2] and row[1] not in {'text'}:
-                row[1] = f'{row[1]}({"max" if row[2] == -1 else row[2]})'
-            row.pop(2)
+            data_type, cml, np, ns = row[1], row.pop(2), row.pop(2), row.pop(2)
+            if cml and row[1] not in {'text', 'ntext', 'xml'}:
+                row[1] = f'{row[1]}({"max" if cml == -1 else cml})'
+            elif data_type in ('decimal', 'numeric'):
+                row[1] = f'{row[1]}({np},{ns})'
             t = index_dict.get(row[0], ('', '', '', '', ''))
             if t[3] == 'YES':
                 key = 'PRI'
             elif t[4] == 'YES':
-                key = 'UNI'
+                key, row[4] = 'UNI', t[2]
             else:
                 key = t[1]
             row.insert(3, key)
@@ -465,7 +442,7 @@ def print_table_description(conf, conn, tab_name, columns, fold):
     else:
         for row in res:
             row[4] = '' if row[4] is None else row[4]
-    print_result_set(header, res, columns, fold, sql)
+    print_result_set(header, res, columns, fold, None)
 
 
 def desc_table(tab_name, fold, columns):
@@ -1257,7 +1234,7 @@ if __name__ == '__main__':
         elif opt == 'test':
             test()
         elif opt == 'version':
-            print('db 2.0.3')
+            print('db 2.0.4')
         else:
             print(ERROR_COLOR.wrap("Invalid operation !"))
             print_usage(error_condition=True)
