@@ -91,6 +91,9 @@ FOLD_COLOR_LENGTH = len(Color.BLACK_WHITE_TWINKLE.wrap(""))
 config = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit']
 
 
+def print_error_msg(msg, end='\n'):
+    sys.stderr.write(ERROR_COLOR.wrap(msg) + end)
+
 def check_conf(dbconf: dict):
     if dbconf['use']['conf'] == DEFAULT_CONF:
         print(WARN_COLOR.wrap('please set conf!'))
@@ -169,7 +172,7 @@ def show_history(fold):
         write_history('history', out_format, Stat.OK)
     except BaseException as e:
         write_history('history', out_format, Stat.ERROR)
-        print(ERROR_COLOR.wrap(e))
+        print_error_msg(e)
 
 
 def get_connection():
@@ -192,10 +195,10 @@ def get_connection():
                                    charset=config.get('charset', 'UTF8'),
                                    autocommit=config.get('autocommit', False)), config
         else:
-            print(ERROR_COLOR.wrap(f"servertype error! servertype={server_type}"))
+            print_error_msg(f"servertype error! servertype={server_type}")
             return None, config
     except BaseException as e:
-        print(ERROR_COLOR.wrap(e))
+        print_error_msg(e)
         return None, config
 
 
@@ -238,7 +241,7 @@ def exe_query(sql, conn):
         write_history('sql', sql, Stat.OK)
     except BaseException as e:
         write_history('sql', sql, Stat.ERROR)
-        print(ERROR_COLOR.wrap(e))
+        print_error_msg(e)
     return description, res_list
 
 
@@ -261,7 +264,7 @@ def exe_no_query(sql, conn):
         write_history('sql', sql, Stat.OK)
     except BaseException as e:
         write_history('sql', sql, Stat.ERROR)
-        print(ERROR_COLOR.wrap(e))
+        print_error_msg(e)
     return effect_rows, description, res, success
 
 
@@ -340,7 +343,7 @@ def show(obj='table'):
     elif obj in {'database', 'databases'}:
         sql = get_list_dbs_sql(conf['servertype'])
     else:
-        print(ERROR_COLOR.wrap(f'invalid obj "{obj}"'))
+        print_error_msg(f'invalid obj "{obj}"')
         write_history('show', obj, Stat.ERROR)
         return
     run_sql(sql, conn, False)
@@ -359,7 +362,7 @@ def print_create_table(server_type, conn, tbName):
         sql, sql2 = f"select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,IS_NULLABLE,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE from information_schema.columns where table_name='{tbName}'", f"sp_columns {tbName}"
         effect_rows, description, res, success = exe_no_query(sql, conn)
         if not res or not res[0]:
-            print(ERROR_COLOR.wrap(f"{tbName} not found!"))
+            print_error_msg(f"{tbName} not found!")
             return
         effect_rows2, description2, res2, success = exe_no_query(sql2, conn)
         header, res = before_print(get_table_head_from_description(description), res[0], None, fold=False)
@@ -434,7 +437,7 @@ def print_table_description(conf, conn, tab_name, columns, fold):
         sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'auto_increment' ELSE '' END Extra,ISNULL(ep.value, '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab_name}' ORDER BY col.colorder"""
     res = exe_query(sql, conn)[1]
     if not res or not res[0]:
-        print(ERROR_COLOR.wrap(f"{tab_name} not found!"))
+        print_error_msg(f"{tab_name} not found!")
         return
     res = list(map(lambda row: list(row), res[0]))
     if conf['servertype'] == 'sqlserver':
@@ -707,7 +710,7 @@ def print_result_set(header, res, columns, fold, sql, index=0):
         print_table(header, res, start_func=empty_start_func,
                     after_print_row_func=empty_after_print_row, end_func=empty_end_func)
     else:
-        print(ERROR_COLOR.wrap(f'Invalid print format : "{out_format}"'))
+        print_error_msg(f'Invalid print format : "{out_format}"')
 
 
 def deal_human(rows):
@@ -737,7 +740,7 @@ def deal_human(rows):
 
 def print_insert_sql(header, res, tab_name):
     if tab_name is None:
-        print(ERROR_COLOR.wrap("Can't get table name !"))
+        print_error_msg("Can't get table name !")
         return
 
     def _case_for_sql(row):
@@ -828,7 +831,7 @@ def print_info():
         write_history('info', '', Stat.OK)
     except BaseException as  e:
         write_history('info', '', Stat.ERROR)
-        print(ERROR_COLOR.wrap(e))
+        print_error_msg(e)
 
 
 def disable_color():
@@ -873,16 +876,16 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
                         print(INFO_COLOR.wrap(f'Add "{set_conf_value}" conf in env={read_info["use"]["env"]}'))
                 continue
             elif conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
-                print(ERROR_COLOR.wrap(f'"{set_conf_value}" not supported!'))
+                print_error_msg(f'"{set_conf_value}" not supported!')
                 continue
             elif conf_key == 'autocommit':
                 if set_conf_value.lower() not in {'true', 'false'}:
-                    print(ERROR_COLOR.wrap(f'"{set_conf_value}" incorrect parameters!'))
+                    print_error_msg(f'"{set_conf_value}" incorrect parameters!')
                     continue
                 set_conf_value = set_conf_value.lower() == 'true'
             elif conf_key == 'port':
                 if not set_conf_value.isdigit():
-                    print(ERROR_COLOR.wrap(f'set port={set_conf_value} fail!'))
+                    print_error_msg(f'set port={set_conf_value} fail!')
                     continue
                 set_conf_value = int(set_conf_value)
             read_info['conf'][read_info['use']['env']][read_info['use']['conf']][conf_key] = set_conf_value
@@ -917,11 +920,11 @@ def set_info(kv):
             try:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as bioe:
-                print(ERROR_COLOR.wrap("set fail, please retry!"))
+                print_error_msg("set fail, please retry!")
                 write_history('set', kv, Stat.ERROR)
                 return
             if is_locked():
-                print(ERROR_COLOR.wrap("db is locked! can't set value."))
+                print_error_msg("db is locked! can't set value.")
                 write_history('set', kv, Stat.ERROR)
                 return
             kv_pair = kv.split('=')
@@ -931,7 +934,7 @@ def set_info(kv):
             write_history('set', kv, Stat.OK)
     except BaseException as e:
         write_history('set', kv, Stat.ERROR)
-        print(ERROR_COLOR.wrap(e))
+        print_error_msg(e)
 
 
 def is_locked():
@@ -950,12 +953,12 @@ def unlock(key):
         try:
             fcntl.flock(t_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as bioe:
-            print(ERROR_COLOR.wrap("unlock fail, please retry!"))
+            print_error_msg("unlock fail, please retry!")
             write_history('unlock', '*' * 6, Stat.ERROR)
             return
         lock_val = lock_value()
         if not lock_val:
-            print(ERROR_COLOR.wrap('The db is not locked.'))
+            print_error_msg('The db is not locked.')
             write_history('unlock', '*' * 6, Stat.ERROR)
             return
         key = key if key else ""
@@ -966,7 +969,7 @@ def unlock(key):
             print(INFO_COLOR.wrap('db unlocked!'))
             write_history('unlock', '*' * 6, Stat.OK)
         else:
-            print(ERROR_COLOR.wrap('Incorrect key.'))
+            print_error_msg('Incorrect key.')
             write_history('unlock', key, Stat.ERROR)
         fcntl.flock(t_lock_file.fileno(), fcntl.LOCK_UN)
 
@@ -976,11 +979,11 @@ def lock(key: str):
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as bioe:
-            print(ERROR_COLOR.wrap("lock fail, please retry!"))
+            print_error_msg("lock fail, please retry!")
             write_history('lock', '*' * 6, Stat.ERROR)
             return
         if is_locked():
-            print(ERROR_COLOR.wrap('The db is already locked, you must unlock it first.'))
+            print_error_msg('The db is already locked, you must unlock it first.')
             write_history('lock', '*' * 6, Stat.ERROR)
             return
         key = key if key else ""
@@ -1092,10 +1095,10 @@ def load(path):
             print(INFO_COLOR.wrap(f'load ok. {success_num} successfully executed, {fail_num} failed.'))
             write_history('load', path, Stat.OK)
         else:
-            print(ERROR_COLOR.wrap(f"path:{path} not exist!"))
+            print_error_msg(f"path:{path} not exist!")
             write_history('load', path, Stat.ERROR)
     except BaseException as e:
-        print(ERROR_COLOR.wrap(f"load {path} fail! {e}"))
+        print_error_msg(f"load {path} fail! {e}")
         write_history('load', path, Stat.ERROR)
 
 
@@ -1154,14 +1157,14 @@ def export():
         write_history('export', export_type, Stat.OK)
     except BaseException as e:
         write_history('export', export_type, Stat.ERROR)
-        print(ERROR_COLOR.wrap(e))
+        print_error_msg(e)
     finally:
         conn.close()
 
 
 def parse_args(args):
     def _error_param_exit(param):
-        print(ERROR_COLOR.wrap(f'Invalid param : "{param}"'))
+        print_error_msg(f'Invalid param : "{param}"')
         sys.exit(-1)
 
     option = args[1].strip().lower() if len(args) > 1 else ''
@@ -1255,8 +1258,8 @@ if __name__ == '__main__':
         elif opt == 'version':
             print('db 2.0.4')
         else:
-            print(ERROR_COLOR.wrap("Invalid operation !"))
+            print_error_msg("Invalid operation !")
             print_usage(error_condition=True)
     except Exception as e:
-        print(ERROR_COLOR.wrap(e))
+        print_error_msg(e)
         traceback.print_exc(chain=e)
