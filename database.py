@@ -96,12 +96,12 @@ def print_error_msg(msg, end='\n'):
 
 def check_conf(dbconf: dict):
     if dbconf['use']['conf'] == DEFAULT_CONF:
-        print(WARN_COLOR.wrap('please set conf!'))
+        print_error_msg('please set conf!')
         return False
     conf_keys = dbconf['conf'][dbconf['use']['env']][dbconf['use']['conf']].keys()
     for conf in config[2:8]:
         if conf not in conf_keys:
-            print(WARN_COLOR.wrap(f'please set {conf}!'))
+            print_error_msg(f'please set {conf}!')
             return False
     return True
 
@@ -112,7 +112,7 @@ def show_database_info(info):
     conf = info['conf'][env].get(conf_name, {}) if info else {}
 
     def print_start_info(table_width):
-        start_info_msg = '[DATABASE INFO]'
+        start_info_msg = '[CONNECTION INFO]'
         f = (table_width - len(start_info_msg)) >> 1
         b = table_width - len(start_info_msg) - f
         print(f'{"#" * f}{start_info_msg}{"#" * b}')
@@ -138,9 +138,8 @@ def get_proc_home():
 
 
 def write_history(option, content, stat):
-    filename = f'hist/.{datetime.now().date()}_db.history'
     proc_home = get_proc_home()
-    file = os.path.join(proc_home, filename)
+    file = os.path.join(proc_home, f'hist/.{datetime.now().date()}_db.history')
     time = datetime.now().strftime('%H:%M:%S')
     data = f'{time}\0\0{option}\0\0{content}\0\0{stat.value}\n'
     with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
@@ -151,9 +150,8 @@ def write_history(option, content, stat):
 
 
 def read_history():
-    filename = f'hist/.{datetime.now().date()}_db.history'
     proc_home = get_proc_home()
-    file = os.path.join(proc_home, filename)
+    file = os.path.join(proc_home, f'hist/.{datetime.now().date()}_db.history')
     history_list = []
     if os.path.exists(file):
         with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
@@ -431,7 +429,6 @@ def get_sqlserver_index_information_dict(conn, tab_name):
 
 
 def print_table_description(conf, conn, tab_name, columns, fold):
-    header = ['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment']
     sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT FROM information_schema.columns WHERE table_schema='{conf['database']}' AND table_name='{tab_name}'"""
     if conf['servertype'] == 'sqlserver':
         sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'auto_increment' ELSE '' END Extra,ISNULL(ep.value, '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab_name}' ORDER BY col.colorder"""
@@ -460,7 +457,7 @@ def print_table_description(conf, conn, tab_name, columns, fold):
     else:
         for row in res:
             row[4] = '' if row[4] is None else row[4]
-    print_result_set(header, res, columns, fold, None)
+    print_result_set(['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment'], res, columns, fold, None)
 
 
 def desc_table(tab_name, fold, columns):
@@ -496,10 +493,9 @@ def print_json(header, res):
             if human else print(json.dumps(dict(zip(header, row)), ensure_ascii=False))
 
 
-def print_html_head(html_head_file_name):
-    with open(os.path.join(get_proc_home(), 'config/html/', html_head_file_name)) as html_head:
-        for line in html_head.readlines():
-            print(line, end='')
+def print_config(path):
+    with open(os.path.join(get_proc_home(), 'config/', path)) as html_head:
+        print(''.join(html_head.readlines()), end='')
 
 
 def print_header_with_html(header):
@@ -507,8 +503,7 @@ def print_header_with_html(header):
     for index, head in enumerate(header):
         if index == 0:
             print("<tr>", end="")
-        head = "" if head is None else head
-        print(f"<th>{head}</th>", end="")
+        print(f"<th>{'' if head is None else head}</th>", end="")
         if index == l:
             print("</tr>")
     return l
@@ -522,7 +517,7 @@ def deal_html_elem(e):
 
 
 def print_html3(header, res):
-    print_html_head('html1.head')
+    print_config('html/html1.head')
     print_header_with_html(header)
     for row in res:
         for index, e in enumerate(row):
@@ -535,7 +530,7 @@ def print_html3(header, res):
 
 
 def print_html2(header, res):
-    print_html_head('html2.head')
+    print_config('html/html2.head')
     print_header_with_html(header)
     for row_num, row in enumerate(res):
         for index, e in enumerate(row):
@@ -548,7 +543,7 @@ def print_html2(header, res):
 
 
 def print_html(header, res):
-    print_html_head('html3.head')
+    print_config('html/html3.head')
     print_header_with_html(header)
     for row in res:
         for index, e in enumerate(row):
@@ -562,7 +557,7 @@ def print_html(header, res):
 
 
 def print_html4(header, res):
-    print_html_head('html4.head')
+    print_config('html/html4.head')
     for index, head in enumerate(header):
         if index == 0:
             print("<thead><tr>", end="")
@@ -675,10 +670,7 @@ def print_result_set(header, res, columns, fold, sql, index=0):
         return
     header, res = before_print(header, res, columns, fold)
     if out_format == 'table':
-        def _start(table_width):
-            print(INFO_COLOR.wrap(f'Result Sets [{index}]:'))
-
-        print_table(header, res, start_func=_start)
+        print_table(header, res, start_func=lambda table_width: print(INFO_COLOR.wrap(f'Result Sets [{index}]:')))
     elif out_format == 'sql' and sql is not None:
         print_insert_sql(header, res, get_tab_name_from_sql(sql))
     elif out_format == 'json':
@@ -698,26 +690,15 @@ def print_result_set(header, res, columns, fold, sql, index=0):
     elif out_format == 'csv':
         print_csv(header, res)
     elif out_format == 'text':
-        def empty_start_func(table_width):
-            pass
-
-        def empty_after_print_row(row_num, row_total_num, max_row_length, split_char, table_width):
-            pass
-
-        def empty_end_func(table_width, total):
-            pass
-
-        print_table(header, res, start_func=empty_start_func,
-                    after_print_row_func=empty_after_print_row, end_func=empty_end_func)
+        print_table(header, res, start_func=lambda a: a,
+                    after_print_row_func=lambda a, b, c, d, e: a, end_func=lambda a, b: a)
     else:
         print_error_msg(f'Invalid print format : "{out_format}"')
 
 
 def deal_human(rows):
     def _human_time(time_stamp):
-        if time_stamp is None:
-            return None
-        if len(str(time_stamp)) not in (10, 13):
+        if not time_stamp or len(str(time_stamp)) not in (10, 13):
             return time_stamp
         if isinstance(time_stamp, str) and time_stamp.isdigit():
             time_stamp = int(time_stamp)
@@ -753,7 +734,6 @@ def print_insert_sql(header, res, tab_name):
                 row[index] = "'{}'".format(e.replace("'", "''").replace('\r', '\\r').replace('\n', '\\n')
                                            .replace('\t', '\\t').replace('\0', '\\0').replace('\b', '\\b'))
             else:
-                print(WARN_COLOR.wrap(f"TYPE WARN:{type(e)}"))
                 row[index] = f"'{e}'"
         return row
 
@@ -764,21 +744,13 @@ def print_insert_sql(header, res, tab_name):
           .format(",\n".join(map(lambda row: f'({",".join(_case_for_sql(row))})', res))))
 
 
-def default_print_start(table_width):
-    print(INFO_COLOR.wrap('Result Sets:'))
-
-
-def default_print_end(table_width, total):
-    print(INFO_COLOR.wrap(f'Total Records: {total}'))
-
-
 def default_after_print_row(row_num, row_total_num, max_row_length, split_char, table_width):
     if max_row_length > SHOW_BOTTOM_THRESHOLD and row_num < row_total_num - 1:
         print(split_char * table_width)
 
 
-def print_table(header, res, split_row_char='-', start_func=default_print_start,
-                after_print_row_func=default_after_print_row, end_func=default_print_end):
+def print_table(header, res, split_row_char='-', start_func=lambda table_width: print(INFO_COLOR.wrap('Result Sets:')),
+                after_print_row_func=default_after_print_row, end_func=lambda table_width, total: print(INFO_COLOR.wrap(f'Total Records: {total}'))):
     def _deal_res(res, _align_list):
         for row in res:
             for index, e in enumerate(row):
@@ -806,7 +778,6 @@ def print_table(header, res, split_row_char='-', start_func=default_print_start,
     # 表格的宽度(数据长度加上分割线)
     table_width = 1 + max_row_length + 3 * len(header)
     space_list_down = [(split_row_char * i, i) for i in max_length_each_fields]
-
     start_func(table_width)
     # 打印表格的上顶线
     print(table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
@@ -969,7 +940,7 @@ def unlock(key):
             print(INFO_COLOR.wrap('db unlocked!'))
             write_history('unlock', '*' * 6, Stat.OK)
         else:
-            print_error_msg('Incorrect key.')
+            print_error_msg('Incorrect key!')
             write_history('unlock', key, Stat.ERROR)
         fcntl.flock(t_lock_file.fileno(), fcntl.LOCK_UN)
 
@@ -983,7 +954,7 @@ def lock(key: str):
             write_history('lock', '*' * 6, Stat.ERROR)
             return
         if is_locked():
-            print_error_msg('The db is already locked, you must unlock it first.')
+            print_error_msg('The db is already locked, you must unlock it first!')
             write_history('lock', '*' * 6, Stat.ERROR)
             return
         key = key if key else ""
@@ -998,29 +969,7 @@ def lock(key: str):
 
 
 def print_usage(error_condition=False):
-    print('''usage: db [options]
-
-help        display this help and exit.
-info        show database info.
-show        list all tables in the current database.
-conf        list all database configurations.
-hist        list today's command history.
-desc        <table name> view the description information of the table.
-load        <sql file> import sql file.
-export      [type] export type: ddl, data and all.
-shell       start an interactive shell.
-scan        <table name> scan full table.
-sql         <sql> [false] [raw] [human] [format] [column index]
-            [false], disable fold.
-            [raw], disable all color.
-            [human], print timestamp in human readable, the premise is that the field contains "time".
-            [format], Print format: text, csv, table, html, markdown, xml, json and sql, the default is table.
-            [col limit], print specific columns, example: "col[0,1,2]" or "col[0-2]".
-            [row limit], print specific rows, example: "row[0:-1]".
-set         <key=val> set database configuration, example: "env=qa", "conf=main".
-version     print product version and exit.
-lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
-unlock      <passwd> unlock database configuration.\n''')
+    print_config('.db.usage')
     if not error_condition:
         write_history('help', '', Stat.OK)
 
@@ -1256,7 +1205,7 @@ if __name__ == '__main__':
         elif opt == 'test':
             test()
         elif opt == 'version':
-            print('db 2.0.4')
+            print('db 2.0.5')
         else:
             print_error_msg("Invalid operation !")
             print_usage(error_condition=True)

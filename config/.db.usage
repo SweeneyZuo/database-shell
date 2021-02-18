@@ -1,0 +1,26 @@
+usage: db [options]
+
+help        display this help and exit.
+info        show database info.
+show        [table|tables], list all tables in the current database.
+            [database|databases], list all databases in the current connection.
+conf        list all database configurations.
+hist        list today's command history.
+desc        <table name> view the description information of the table.
+load        <sql file> import sql file.
+export      [ddl], export ddl only.
+            [data], export data only.
+            [all], export data and ddl.
+shell       start an interactive shell.
+scan        <table name> scan full table.
+sql         <sql> [false] [raw] [human] [format] [col[0,1,2...]] [row[<0>:<n>]]
+            [false], disable fold.
+            [raw], disable all color.
+            [human], print timestamp in human readable, the premise is that the field contains "time".
+            [format], Print format: text, csv, table, html, markdown, xml, json and sql, the default is table.
+            [col[0,1,2...]], print specific columns, example: "col[0,1,2]" or "col[0-2]".
+            [row[<0>:<n>]], print specific rows, example: "row[0:-1]".
+set         [<key>=<val>], set database configuration, example: "env=qa", "conf=main".
+version     print product version and exit.
+lock        <passwd> lock the current database configuration to prevent other users from switching database configuration operations.
+unlock      <passwd> unlock database configuration.
