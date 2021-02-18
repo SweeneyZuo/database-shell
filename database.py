@@ -319,16 +319,31 @@ def get_max_length_each_fields(rows, func):
 
 def get_list_tab_sql(server_type, dbName):
     if server_type == 'mysql':
-        return f"SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA='{dbName}' ORDER BY TABLE_NAME"
+        return f"SELECT TABLE_NAME `Table` FROM information_schema.tables WHERE TABLE_SCHEMA='{dbName}' ORDER BY TABLE_NAME"
     else:
-        return "SELECT name FROM sys.tables ORDER BY name"
+        return "SELECT name [Table] FROM sys.tables ORDER BY name"
 
 
-def list_tables():
+def get_list_dbs_sql(server_type):
+    if server_type == 'mysql':
+        return f"SELECT DISTINCT TABLE_SCHEMA `Database` FROM information_schema.tables ORDER BY TABLE_SCHEMA"
+    else:
+        return "SELECT name [Database] FROM sys.sysdatabases ORDER BY name"
+
+
+def show(obj='table'):
     conn, conf = get_connection()
     if conn is None:
         return
-    run_sql(get_list_tab_sql(conf['servertype'], conf['database']), conn, False)
+    if obj in {'', 'table', 'tables'}:
+        sql = get_list_tab_sql(conf['servertype'], conf['database'])
+    elif obj in {'database', 'databases'}:
+        sql = get_list_dbs_sql(conf['servertype'])
+    else:
+        print(ERROR_COLOR.wrap(f'invalid obj "{obj}"'))
+        write_history('show', obj, Stat.ERROR)
+        return
+    run_sql(sql, conn, False)
     conn.close()
 
 
@@ -341,7 +356,7 @@ def print_create_table(server_type, conn, tbName):
 
     def print_create_table_sqlserver():
         res_list = []
-        sql, sql2 = f"select * from information_schema.columns where table_name='{tbName}'", f"sp_columns {tbName}"
+        sql, sql2 = f"select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,IS_NULLABLE,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE from information_schema.columns where table_name='{tbName}'", f"sp_columns {tbName}"
         effect_rows, description, res, success = exe_no_query(sql, conn)
         if not res or not res[0]:
             print(ERROR_COLOR.wrap(f"{tbName} not found!"))
@@ -359,20 +374,20 @@ def print_create_table(server_type, conn, tbName):
                 l.append(k)
         res_list.append(f"CREATE TABLE [{res[0][0]}].[{res[0][1]}].[{res[0][2]}] (\n")
         for index, (row, row2) in enumerate(zip(res, res2)):
-            col_name, data_type = row2[3], row[7]
+            col_name, data_type = row2[3], row[4]
             res_list.append(f"  [{col_name}] {data_type}")
             index_col = indexDict.get(col_name, ('', '', '', '', ''))
             is_primary_key = index_col[3] == 'YES'
-            if row[8] is not None and data_type not in ('text', 'ntext', 'xml'):
-                res_list.append(f"({'max' if row[8] == -1 else row[8]})")
+            if row[5] is not None and data_type not in ('text', 'ntext', 'xml'):
+                res_list.append(f"({'max' if row[5] == -1 else row[5]})")
             elif data_type in ('decimal', 'numeric'):
-                res_list.append(f"({row[10]},{row[12]})")
+                res_list.append(f"({row[6]},{row[7]})")
             if row2[5].endswith("identity"):
                 idSeed, idIncr = exe_no_query(f"SELECT IDENT_SEED('{tbName}'),IDENT_INCR('{tbName}')", conn)[2][0][0]
                 res_list.append(f" identity({idSeed},{idIncr})")
             if row2[12] is not None:
                 res_list.append(f" DEFAULT {row2[12]}")
-            if row[6] == 'NO' and not is_primary_key:
+            if row[3] == 'NO' and not is_primary_key:
                 res_list.append(" NOT NULL")
             if index == len(res) - 1:
                 res_list.append(f",\n  primary key({','.join(primary_key)})" if primary_key else '')
@@ -1152,7 +1167,7 @@ def parse_args(args):
     option = args[1].strip().lower() if len(args) > 1 else ''
     global out_format, human, export_type, limit_rows
     columns, fold, export_type, human, out_format, set_format, set_human, set_export_type, set_columns, set_fold, \
-    set_raw, set_row_limit, limit_rows = None, True, 'all', False, 'table', False, False, False, False, False, False, False, None
+    set_raw, set_row_limit, limit_rows, set_show_obj = None, True, 'all', False, 'table', False, False, False, False, False, False, False, None,False
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
     if len(args) > parse_start_pos:
@@ -1160,11 +1175,15 @@ def parse_args(args):
             p: str = args[index].strip().lower()
             limit_row_re = re.match("^(row)\[\s*(-?\d+)\s*:\s*(-?\d+)\s*(\])$", p)
             limit_column_re = re.match("^(col)\[((\s*\d+\s*-\s*\d+\s*)|(\s*(\d+)\s*(,\s*(\d+)\s*)*))(\])$", p)
-            if option in {'info', 'shell', 'help', 'test', 'show', 'version'}:
+            if option in {'info', 'shell', 'help', 'test', 'version'}:
                 _error_param_exit(p)
             elif index == 2 and option in {'sql', 'scan', 'desc', 'load', 'set', 'lock', 'unlock'}:
                 # 第3个参数可以自定义输入的操作
                 continue
+            elif option == 'show':
+                if p not in {'database', 'table', 'databases', 'tables'} or set_show_obj:
+                    _error_param_exit(p)
+                set_show_obj = set_fold = set_raw = set_row_limit = set_human = set_columns = set_format = True
             elif not set_fold and p == 'false':
                 fold, set_fold = False, True
             elif not set_row_limit and option not in {'export'} and limit_row_re:
@@ -1206,7 +1225,7 @@ if __name__ == '__main__':
         if opt in {'info', ''}:
             print_info()
         elif opt == 'show':
-            list_tables()
+            show(option_val.lower())
         elif opt == 'conf':
             show_conf()
         elif opt in {'hist', 'history'}:
