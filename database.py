@@ -193,7 +193,7 @@ def get_connection():
                                    charset=config.get('charset', 'UTF8'),
                                    autocommit=config.get('autocommit', False)), config
         else:
-            print_error_msg(f"servertype error! servertype={server_type}")
+            print_error_msg(f"invalid serverType: {server_type}")
             return None, config
     except BaseException as e:
         print_error_msg(e)
@@ -423,7 +423,7 @@ def get_sqlserver_index_information_dict(conn, tab_name):
     :return: {colName:(colName,indexType,indexName,primaryKey,isUnique)}
     """
     index_formation = exe_query(
-        f"""SELECT columnName=C.Name,indexType=ISNULL(KC.type_desc,'Index'),indexName=IDX.Name,primaryKey=CASE WHEN IDX.is_primary_key=1 THEN 'YES' ELSE '' END,isUnique=CASE WHEN IDX.is_unique=1 THEN 'YES' ELSE '' END FROM sys.indexes IDX JOIN sys.index_columns IDXC ON IDX.object_id=IDXC.object_id AND IDX.index_id=IDXC.index_id LEFT JOIN sys.key_constraints KC ON IDX.object_id=KC.parent_object_id AND IDX.index_id = KC.unique_index_id JOIN sys.objects O ON O.object_id=IDX.object_id JOIN sys.columns C ON O.object_id=C.object_id AND O.type='U' AND O.is_ms_shipped=0 AND IDXC.Column_id=C.Column_id WHERE O.name='{tab_name}'""",
+        f"""SELECT C.Name,ISNULL(KC.type_desc,'Index'),IDX.Name,CASE WHEN IDX.is_primary_key=1 THEN 'YES' ELSE '' END,CASE WHEN IDX.is_unique=1 THEN 'YES' ELSE '' END FROM sys.indexes IDX JOIN sys.index_columns IDXC ON IDX.object_id=IDXC.object_id AND IDX.index_id=IDXC.index_id LEFT JOIN sys.key_constraints KC ON IDX.object_id=KC.parent_object_id AND IDX.index_id = KC.unique_index_id JOIN sys.objects O ON O.object_id=IDX.object_id JOIN sys.columns C ON O.object_id=C.object_id AND O.type='U' AND O.is_ms_shipped=0 AND IDXC.Column_id=C.Column_id WHERE O.name='{tab_name}'""",
         conn)[1]
     return {fmt[0]: fmt for fmt in index_formation[0]} if index_formation else dict()
 
@@ -547,9 +547,6 @@ def print_html(header, res):
     print_header_with_html(header)
     for row in res:
         for index, e in enumerate(row):
-            if index == 0:
-                s = '<tr onmouseover="this.style.backgroundColor=\'#ffff66\';"onmouseout="this.style.backgroundColor=\'#d4e3e5\';">'
-                print(s)
             print(f"<td>{deal_html_elem(e)}</td>", end="")
         else:
             print("</tr>")
@@ -693,7 +690,7 @@ def print_result_set(header, res, columns, fold, sql, index=0):
         print_table(header, res, start_func=lambda a: a,
                     after_print_row_func=lambda a, b, c, d, e: a, end_func=lambda a, b: a)
     else:
-        print_error_msg(f'Invalid print format : "{out_format}"')
+        print_error_msg(f'Invalid print format : "{out_format}"!')
 
 
 def deal_human(rows):
@@ -721,7 +718,7 @@ def deal_human(rows):
 
 def print_insert_sql(header, res, tab_name):
     if tab_name is None:
-        print_error_msg("Can't get table name !")
+        print_error_msg("Can't get table name!")
         return
 
     def _case_for_sql(row):
@@ -1207,7 +1204,7 @@ if __name__ == '__main__':
         elif opt == 'version':
             print('db 2.0.5')
         else:
-            print_error_msg("Invalid operation !")
+            print_error_msg("Invalid operation!")
             print_usage(error_condition=True)
     except Exception as e:
         print_error_msg(e)
