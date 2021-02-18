@@ -92,7 +92,7 @@ config = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'data
 
 
 def print_error_msg(msg, end='\n'):
-    sys.stderr.write(ERROR_COLOR.wrap(msg) + end)
+    sys.stderr.write(f'{ERROR_COLOR.wrap(msg)}{end}')
 
 def check_conf(dbconf: dict):
     if dbconf['use']['conf'] == DEFAULT_CONF:
@@ -318,18 +318,22 @@ def get_max_length_each_fields(rows, func):
     return length_head
 
 
-def get_list_tab_sql(server_type, dbName):
-    if server_type == 'mysql':
-        return f"SELECT TABLE_NAME `Table` FROM information_schema.tables WHERE TABLE_SCHEMA='{dbName}' ORDER BY TABLE_NAME"
-    else:
-        return "SELECT name [Table] FROM sys.tables ORDER BY name"
-
-
-def get_list_dbs_sql(server_type):
-    if server_type == 'mysql':
-        return f"SELECT DISTINCT TABLE_SCHEMA `Database` FROM information_schema.tables ORDER BY TABLE_SCHEMA"
-    else:
-        return "SELECT name [Database] FROM sys.sysdatabases ORDER BY name"
+def get_list_obj_sql(obj, serverType, dbName):
+    if obj == 'database':
+        if serverType == 'mysql':
+            return f"SELECT DISTINCT TABLE_SCHEMA `Database` FROM information_schema.tables ORDER BY TABLE_SCHEMA"
+        else:
+            return "SELECT name [Database] FROM sys.sysdatabases ORDER BY name"
+    elif obj == 'table':
+        if serverType == 'mysql':
+            return f"SELECT TABLE_NAME `Table` FROM information_schema.tables WHERE TABLE_SCHEMA='{dbName}' ORDER BY TABLE_NAME"
+        else:
+            return "SELECT name [Table] FROM sys.tables ORDER BY name"
+    elif obj == 'view':
+        if serverType == 'mysql':
+            return f"select distinct TABLE_NAME `View` from information_schema.views WHERE TABLE_SCHEMA='{dbName}' ORDER BY TABLE_NAME"
+        else:
+            return f"select distinct TABLE_NAME [View] from information_schema.views WHERE TABLE_CATALOG='{dbName}' ORDER BY TABLE_NAME"
 
 
 def show(obj='table'):
@@ -337,12 +341,15 @@ def show(obj='table'):
     if conn is None:
         return
     if obj in {'', 'table', 'tables'}:
-        sql = get_list_tab_sql(conf['servertype'], conf['database'])
+        sql = get_list_obj_sql('table', conf['servertype'], conf['database'])
     elif obj in {'database', 'databases'}:
-        sql = get_list_dbs_sql(conf['servertype'])
+        sql = get_list_obj_sql('database', conf['servertype'], conf['database'])
+    elif obj in {'view', 'views'}:
+        sql = get_list_obj_sql('view', conf['servertype'], conf['database'])
     else:
-        print_error_msg(f'invalid obj "{obj}"')
+        print_error_msg(f'invalid obj "{obj}"!')
         write_history('show', obj, Stat.ERROR)
+        conn.close()
         return
     run_sql(sql, conn, False)
     conn.close()
@@ -418,9 +425,9 @@ def print_create_table(server_type, conn, tbName):
 
 def get_sqlserver_index_information_dict(conn, tab_name):
     """
-    :param conn:
-    :param tab_name:
-    :return: {colName:(colName,indexType,indexName,primaryKey,isUnique)}
+       :param conn:
+       :param tab_name:
+       :return: {colName:(colName,indexType,indexName,primaryKey,isUnique)}
     """
     index_formation = exe_query(
         f"""SELECT C.Name,ISNULL(KC.type_desc,'Index'),IDX.Name,CASE WHEN IDX.is_primary_key=1 THEN 'YES' ELSE '' END,CASE WHEN IDX.is_unique=1 THEN 'YES' ELSE '' END FROM sys.indexes IDX JOIN sys.index_columns IDXC ON IDX.object_id=IDXC.object_id AND IDX.index_id=IDXC.index_id LEFT JOIN sys.key_constraints KC ON IDX.object_id=KC.parent_object_id AND IDX.index_id = KC.unique_index_id JOIN sys.objects O ON O.object_id=IDX.object_id JOIN sys.columns C ON O.object_id=C.object_id AND O.type='U' AND O.is_ms_shipped=0 AND IDXC.Column_id=C.Column_id WHERE O.name='{tab_name}'""",
@@ -1088,7 +1095,7 @@ def export():
     if conn is None:
         return
     try:
-        tab_list = exe_query(get_list_tab_sql(conf['servertype'], conf['database']), conn)[1]
+        tab_list = exe_query(get_list_obj_sql('table', conf['servertype'], conf['database']), conn)[1]
         split_line = get_print_split_line_with_format()
         print_template = get_print_template_with_format()
         for tab in tab_list[0]:
@@ -1130,7 +1137,7 @@ def parse_args(args):
                 # 第3个参数可以自定义输入的操作
                 continue
             elif option == 'show':
-                if p not in {'database', 'table', 'databases', 'tables'} or set_show_obj:
+                if p not in {'database', 'table', 'databases', 'tables', 'view', 'views'} or set_show_obj:
                     _error_param_exit(p)
                 set_show_obj = set_fold = set_raw = set_row_limit = set_human = set_columns = set_format = True
             elif not set_fold and p == 'false':

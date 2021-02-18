@@ -2,8 +2,9 @@ usage: db [options]
 
 help        display this help and exit.
 info        show database info.
-show        [table|tables], list all tables in the current database.
-            [database|databases], list all databases in the current connection.
+show        [database|databases], list all databases in the current connection.
+            [table|tables], list all tables in the current database.
+            [view|views], list all views in the current database.
 conf        list all database configurations.
 hist        list today's command history.
 desc        <table name> view the description information of the table.
