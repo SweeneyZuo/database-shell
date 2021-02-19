@@ -348,7 +348,7 @@ def show(obj='table'):
     conn.close()
 
 
-def print_create_table(server_type, conn, tbName):
+def print_create_table(conf, conn, tbName):
     def print_create_table_mysql():
         res = exe_no_query(f'show create table {tbName}', conn)[2]
         if not res:
@@ -357,39 +357,43 @@ def print_create_table(server_type, conn, tbName):
 
     def print_create_table_sqlserver():
         res_list = []
-        sql, sql2 = f"select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,IS_NULLABLE,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE from information_schema.columns where table_name='{tbName}'", f"sp_columns {tbName}"
+        sql, sql2 = f"""SELECT TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,ic.IS_NULLABLE,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE,tmp.definition FROM information_schema.columns ic LEFT JOIN (SELECT c.name col,c.definition FROM sys.computed_columns c \
+JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE t.name='{tbName}' AND s.name='dbo') tmp ON ic.COLUMN_NAME=tmp.col WHERE ic.TABLE_NAME='{tbName}' AND ic.TABLE_SCHEMA='dbo';""", f"sp_columns {tbName}"
         effect_rows, description, res, success = exe_no_query(sql, conn)
         if not res or not res[0]:
             print_error_msg(f"{tbName} not found!")
             return
         effect_rows2, description2, res2, success = exe_no_query(sql2, conn)
-        header, res = before_print(get_table_head_from_description(description), res[0], None, fold=False)
-        header2, res2 = before_print(get_table_head_from_description(description2), res2[0], None, fold=False)
-        indexDict = get_sqlserver_index_information_dict(conn, tbName)
+        header, res = before_print(get_table_head_from_description(description[0]), res[0], None, fold=False)
+        header2, res2 = before_print(get_table_head_from_description(description2[0]), res2[0], None, fold=False)
+        indexDict, foreignDict = get_sqlserver_index_information_dict(conn, conf['database'], tbName)
         primary_key, mul_unique = [], {}
         for k, v in indexDict.items():
-            if v[3] == 'YES':
+            if v[2] == 'PK':
                 primary_key.append(k)
-            elif v[4] == 'YES':
-                mul_unique[v[2]] = l = mul_unique.get(v[2], [])
+            elif v[2] == 'UQ':
+                mul_unique[v[1]] = l = mul_unique.get(v[1], [])
                 l.append(k)
         res_list.append(f"CREATE TABLE [{res[0][0]}].[{res[0][1]}].[{res[0][2]}] (\n")
         for index, (row, row2) in enumerate(zip(res, res2)):
             col_name, data_type = row2[3], row[4]
-            res_list.append(f"  [{col_name}] {data_type}")
-            index_col = indexDict.get(col_name, ('', '', '', '', ''))
-            is_primary_key = index_col[3] == 'YES'
-            if row[5] is not None and data_type not in ('text', 'ntext', 'xml'):
-                res_list.append(f"({'max' if row[5] == -1 else row[5]})")
-            elif data_type in ('decimal', 'numeric'):
-                res_list.append(f"({row[6]},{row[7]})")
-            if row2[5].endswith("identity"):
-                idSeed, idIncr = exe_no_query(f"SELECT IDENT_SEED('{tbName}'),IDENT_INCR('{tbName}')", conn)[2][0][0]
-                res_list.append(f" IDENTITY({idSeed},{idIncr})")
-            if row2[12] is not None:
-                res_list.append(f" DEFAULT {row2[12]}")
-            if row[3] == 'NO' and not is_primary_key:
-                res_list.append(" NOT NULL")
+            if row[8]:
+                res_list.append(f"  [{col_name}] AS {row[8]}")
+            else:
+                res_list.append(f"  [{col_name}] {data_type}")
+                if row[5] is not None and data_type not in ('text', 'ntext', 'xml'):
+                    res_list.append(f"({'max' if row[5] == -1 else row[5]})")
+                elif data_type in ('decimal', 'numeric'):
+                    res_list.append(f"({row[6]},{row[7]})")
+                if row2[5].endswith("identity"):
+                    idSeed, idIncr = exe_no_query(f"SELECT IDENT_SEED('{tbName}'),IDENT_INCR('{tbName}')", conn)[2][0][0]
+                    res_list.append(f" IDENTITY({idSeed},{idIncr})")
+                if row2[12] is not None:
+                    res_list.append(f" DEFAULT {row2[12]}")
+                if row[3] == 'NO':
+                    res_list.append(" NOT NULL")
+            if foreignDict.get(col_name, None):
+                res_list.append(f" CONSTRAINT {foreignDict[col_name][1]} REFERENCES {foreignDict[col_name][3]}")
             if index == len(res) - 1:
                 res_list.append(f",\n  PRIMARY KEY({','.join(primary_key)})" if primary_key else '')
                 res_list.append(',\n' if mul_unique else '')
@@ -403,7 +407,7 @@ def print_create_table(server_type, conn, tbName):
              WHERE obj.name='{tbName}' AND ep.value is not NULL) union (select obj.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id from dbo.sysobjects obj join sys.extended_properties ep on obj.id=ep.major_id where ep.minor_id=0 and obj.xtype='U' AND obj.status>=0 AND obj.name='{tbName}')""",
             conn)[1]
         if comment:
-            is_number = lambda data_type: data_type in {'bigint', 'int', 'tinyint', 'smallint', 'bit', 'float',
+            is_number = lambda data_type: data_type in {'bigint', 'int', 'tinyint', 'smallint', 'float',
                                                         'decimal', 'numeric', 'real', 'money', 'smallmoney'}
             for com in comment[0]:
                 res_list.append(
@@ -412,22 +416,23 @@ def print_create_table(server_type, conn, tbName):
                         f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res[0][1]}', 'TABLE', '{tbName}', 'COLUMN', '{com[0]}';""")
         print(''.join(res_list))
 
-    if server_type == 'mysql':
+    if conf['servertype'] == 'mysql':
         print_create_table_mysql()
-    elif server_type == 'sqlserver':
+    elif conf['servertype'] == 'sqlserver':
         print_create_table_sqlserver()
 
 
-def get_sqlserver_index_information_dict(conn, tab_name):
+def get_sqlserver_index_information_dict(conn, database, tab_name, dbo='dbo'):
     """
-       :param conn:
-       :param tab_name:
-       :return: {colName:(colName,indexType,indexName,primaryKey,isUnique)}
+       :return: {colName:(colName,CONSTRAINT_NAME,indexType,referenced)}
     """
     index_formation = exe_query(
-        f"""SELECT C.Name,ISNULL(KC.type_desc,'Index'),IDX.Name,CASE WHEN IDX.is_primary_key=1 THEN 'YES' ELSE '' END,CASE WHEN IDX.is_unique=1 THEN 'YES' ELSE '' END FROM sys.indexes IDX JOIN sys.index_columns IDXC ON IDX.object_id=IDXC.object_id AND IDX.index_id=IDXC.index_id LEFT JOIN sys.key_constraints KC ON IDX.object_id=KC.parent_object_id AND IDX.index_id = KC.unique_index_id JOIN sys.objects O ON O.object_id=IDX.object_id JOIN sys.columns C ON O.object_id=C.object_id AND O.type='U' AND O.is_ms_shipped=0 AND IDXC.Column_id=C.Column_id WHERE O.name='{tab_name}'""",
+        f"""(SELECT COLUMN_NAME,CONSTRAINT_NAME,k.type,'' referenced FROM sys.key_constraints k LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE c ON k.name=c.CONSTRAINT_NAME WHERE c.TABLE_CATALOG='{database}' AND c.TABLE_SCHEMA='{dbo}' AND c.TABLE_NAME='{tab_name}') \
+        UNION (SELECT c.COLUMN_NAME,r.CONSTRAINT_NAME,f.type, object_name(f.referenced_object_id) referenced FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS r LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE c ON c.CONSTRAINT_NAME=r.CONSTRAINT_NAME JOIN sys.foreign_keys f ON f.name=c.CONSTRAINT_NAME \
+        WHERE c.TABLE_CATALOG='{database}' AND c.TABLE_SCHEMA='{dbo}' AND c.TABLE_NAME='{tab_name}')""",
         conn)[1]
-    return {fmt[0]: fmt for fmt in index_formation[0]} if index_formation else dict()
+    return {fmt[0]: fmt for fmt in index_formation[0]} if index_formation else dict(), \
+           {fmt[0]: fmt for fmt in index_formation[0] if fmt[2] not in {'PK', 'UQ'}} if index_formation else dict()
 
 
 def print_table_description(conf, conn, tab_name, columns, fold):
@@ -440,20 +445,24 @@ def print_table_description(conf, conn, tab_name, columns, fold):
         return
     res = list(map(lambda row: list(row), res[0]))
     if conf['servertype'] == 'sqlserver':
-        index_dict = get_sqlserver_index_information_dict(conn, tab_name)
+        indexDict,foreignDict = get_sqlserver_index_information_dict(conn, conf['database'], tab_name)
         for row in res:
             data_type, cml, np, ns = row[1], row.pop(2), row.pop(2), row.pop(2)
             if cml and row[1] not in {'text', 'ntext', 'xml'}:
                 row[1] = f'{row[1]}({"max" if cml == -1 else cml})'
             elif data_type in ('decimal', 'numeric'):
                 row[1] = f'{row[1]}({np},{ns})'
-            t = index_dict.get(row[0], ('', '', '', '', ''))
-            if t[3] == 'YES':
-                key = 'PRI'
-            elif t[4] == 'YES':
-                key, row[4] = 'UNI', t[2]
+            t = indexDict.get(row[0], ('', '', '',''))
+            f = foreignDict.get(row[0], None)
+            if t[2] == 'PK':
+                key = 'PK'
+            elif t[2] == 'UQ':
+                key, row[4] = 'UQ', t[1]
             else:
-                key = t[1]
+                key = ''
+            if f:
+                key = f'{key},FK' if key else 'FK'
+                row[4] = f'{row[4]},Referenced {f[3]}' if row[4] else f'Referenced {f[3]}'
             row.insert(3, key)
             row[4] = '' if row[4] is None else row[4]
     else:
@@ -478,7 +487,7 @@ def print_table_schema(conf, conn, tab_name, columns, fold=False, attach_sql=Fal
     if out_format in {'sql', 'markdown'}:
         if out_format == 'markdown':
             print('\n```sql\n', end='')
-        print_create_table(conf['servertype'], conn, tab_name)
+        print_create_table(conf, conn, tab_name)
         if out_format == 'markdown':
             print('```\n', end='')
 
@@ -1086,12 +1095,12 @@ def export():
         print_template = get_print_template_with_format()
         for tab in tab_list[0]:
             if export_type in {'all', 'ddl'}:
-                print(print_template.format(f'Table structure for table "{tab[0]}"'))
+                print(print_template.format(f'Table structure for {tab[0]}'))
                 print_table_schema(conf, conn, tab[0], columns, fold, export_type == 'ddl')
                 print(split_line)
             if export_type in {'all', 'data'}:
-                print(print_template.format(f'Dumping data for table "{tab[0]}"'), end='')
-                run_sql(f'select * from {tab[0]}', conn, fold)
+                print(print_template.format(f'Dumping data for {tab[0]}'), end='')
+                run_sql(f'SELECT * FROM {tab[0]}', conn, fold)
                 print(split_line)
         write_history('export', export_type, Stat.OK)
     except BaseException as e:
