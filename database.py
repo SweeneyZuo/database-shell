@@ -94,6 +94,7 @@ config = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'data
 def print_error_msg(msg, end='\n'):
     sys.stderr.write(f'{ERROR_COLOR.wrap(msg)}{end}')
 
+
 def check_conf(dbconf: dict):
     if dbconf['use']['conf'] == DEFAULT_CONF:
         print_error_msg('please set conf!')
@@ -117,11 +118,7 @@ def show_database_info(info):
         b = table_width - len(start_info_msg) - f
         print(f'{"#" * f}{start_info_msg}{"#" * b}')
 
-    def print_end_info(table_width, total):
-        print('#' * table_width)
-
-    header = ['env', 'conf', 'serverType', 'host', 'port', 'user', 'password', 'database', 'lockStat']
-    print_table(header,
+    print_table(['env', 'conf', 'serverType', 'host', 'port', 'user', 'password', 'database', 'lockStat'],
                 [[env, conf_name,
                   conf.get('servertype', ''),
                   conf.get('host', ''),
@@ -130,7 +127,7 @@ def show_database_info(info):
                   conf.get('password', ''),
                   conf.get('database', ''),
                   is_locked()]],
-                split_row_char='-', start_func=print_start_info, end_func=print_end_info)
+                split_row_char='-', start_func=print_start_info, end_func=lambda a, b: print('#' * a))
 
 
 def get_proc_home():
@@ -140,12 +137,10 @@ def get_proc_home():
 def write_history(option, content, stat):
     proc_home = get_proc_home()
     file = os.path.join(proc_home, f'hist/.{datetime.now().date()}_db.history')
-    time = datetime.now().strftime('%H:%M:%S')
-    data = f'{time}\0\0{option}\0\0{content}\0\0{stat.value}\n'
     with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='a+', encoding='UTF-8') as history_file:
-            history_file.write(data)
+            history_file.write(f'{datetime.now().strftime("%H:%M:%S")}\0\0{option}\0\0{content}\0\0{stat.value}\n')
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
@@ -164,9 +159,8 @@ def read_history():
 
 def show_history(fold):
     try:
-        table_head = ['time', 'option', 'value', 'stat']
-        res = [list(map(lambda cell: cell.replace("\n", ""), line.split('\0\0'))) for line in read_history()]
-        print_result_set(table_head, res, columns, fold, None)
+        res = [list(map(lambda cell: cell.replace("\n", " "), line.split('\0\0'))) for line in read_history()]
+        print_result_set(['time', 'option', 'value', 'stat'], res, columns, fold, None)
         write_history('history', out_format, Stat.OK)
     except BaseException as e:
         write_history('history', out_format, Stat.ERROR)
@@ -280,11 +274,10 @@ def calc_char_width(char):
 def str_width(any_str):
     if any_str == NULL_STR:
         return 4
-    l = 0
-    color_len = FOLD_COLOR_LENGTH if any_str.endswith(FOLD_REPLACE_STR) else 0
+    l = -FOLD_COLOR_LENGTH if any_str.endswith(FOLD_REPLACE_STR) else 0
     for char in any_str:
         l += calc_char_width(char)
-    return l - color_len
+    return l
 
 
 def table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_char='|'):
@@ -392,29 +385,31 @@ def print_create_table(server_type, conn, tbName):
                 res_list.append(f"({row[6]},{row[7]})")
             if row2[5].endswith("identity"):
                 idSeed, idIncr = exe_no_query(f"SELECT IDENT_SEED('{tbName}'),IDENT_INCR('{tbName}')", conn)[2][0][0]
-                res_list.append(f" identity({idSeed},{idIncr})")
+                res_list.append(f" IDENTITY({idSeed},{idIncr})")
             if row2[12] is not None:
                 res_list.append(f" DEFAULT {row2[12]}")
             if row[3] == 'NO' and not is_primary_key:
                 res_list.append(" NOT NULL")
             if index == len(res) - 1:
-                res_list.append(f",\n  primary key({','.join(primary_key)})" if primary_key else '')
+                res_list.append(f",\n  PRIMARY KEY({','.join(primary_key)})" if primary_key else '')
                 res_list.append(',\n' if mul_unique else '')
-                res_list.append(',\n'.join([f"  constraint {k} unique({','.join(v)})" for k, v in mul_unique.items()]))
+                res_list.append(',\n'.join([f"  CONSTRAINT {k} UNIQUE({','.join(v)})" for k, v in mul_unique.items()]))
                 res_list.append('\n')
             else:
                 res_list.append(",\n")
         res_list.append(");")
         comment = exe_query(
-            f"""(SELECT col.name,ep.value,ep.name comment,ep.minor_id FROM dbo.syscolumns col JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id
- WHERE obj.name='{tbName}' AND ep.value is not NULL) union (select obj.name,ep.value,ep.name comment,ep.minor_id from dbo.sysobjects obj join sys.extended_properties ep on obj.id=ep.major_id where ep.minor_id=0 and obj.xtype='U' AND obj.status>=0 AND obj.name='{tbName}')""",
+            f"""(SELECT col.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id FROM dbo.syscolumns col JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id \
+             WHERE obj.name='{tbName}' AND ep.value is not NULL) union (select obj.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id from dbo.sysobjects obj join sys.extended_properties ep on obj.id=ep.major_id where ep.minor_id=0 and obj.xtype='U' AND obj.status>=0 AND obj.name='{tbName}')""",
             conn)[1]
         if comment:
+            is_number = lambda data_type: data_type in {'bigint', 'int', 'tinyint', 'smallint', 'bit', 'float',
+                                                        'decimal', 'numeric', 'real', 'money', 'smallmoney'}
             for com in comment[0]:
                 res_list.append(
-                    f"""\nexec sp_addextendedproperty '{com[2]}', '{str(com[1], "utf8")}', 'SCHEMA', '{res[0][1]}', 'TABLE', '{tbName}';""" if
-                    com[3] == 0 else \
-                        f"""\nexec sp_addextendedproperty '{com[2]}', '{str(com[1], "utf8")}', 'SCHEMA', '{res[0][1]}', 'TABLE', '{tbName}', 'COLUMN', '{com[0]}';""")
+                    f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res[0][1]}', 'TABLE', '{tbName}';""" if
+                    com[4] == 0 else \
+                        f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res[0][1]}', 'TABLE', '{tbName}', 'COLUMN', '{com[0]}';""")
         print(''.join(res_list))
 
     if server_type == 'mysql':
@@ -438,7 +433,7 @@ def get_sqlserver_index_information_dict(conn, tab_name):
 def print_table_description(conf, conn, tab_name, columns, fold):
     sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT FROM information_schema.columns WHERE table_schema='{conf['database']}' AND table_name='{tab_name}'"""
     if conf['servertype'] == 'sqlserver':
-        sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'auto_increment' ELSE '' END Extra,ISNULL(ep.value, '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab_name}' ORDER BY col.colorder"""
+        sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'auto_increment' ELSE '' END Extra,ISNULL(CONVERT(varchar,ep.value), '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab_name}' ORDER BY col.colorder"""
     res = exe_query(sql, conn)[1]
     if not res or not res[0]:
         print_error_msg(f"{tab_name} not found!")
@@ -507,12 +502,10 @@ def print_config(path):
 
 def print_header_with_html(header):
     l = len(header) - 1
+    print("<tr>", end="")
     for index, head in enumerate(header):
-        if index == 0:
-            print("<tr>", end="")
         print(f"<th>{'' if head is None else head}</th>", end="")
-        if index == l:
-            print("</tr>")
+    print("</tr>")
     return l
 
 
@@ -544,8 +537,7 @@ def print_html2(header, res):
             if index == 0:
                 print("<tr>", end="") if row_num % 2 == 0 else print('<tr class="alt">', end="")
             print(f"<td>{deal_html_elem(e)}</td>", end="")
-        else:
-            print("</tr>")
+        print("</tr>")
     print("</table>\n</body>\n</html>")
 
 
@@ -554,20 +546,20 @@ def print_html(header, res):
     print_header_with_html(header)
     for row in res:
         for index, e in enumerate(row):
+            if index == 0:
+                s = '<tr onmouseover="this.style.backgroundColor=\'#ffff66\';"onmouseout="this.style.backgroundColor=\'#d4e3e5\';">'
+                print(s)
             print(f"<td>{deal_html_elem(e)}</td>", end="")
-        else:
-            print("</tr>")
+        print("</tr>")
     print("</table>")
 
 
 def print_html4(header, res):
     print_config('html/html4.head')
+    print("<thead><tr>", end="")
     for index, head in enumerate(header):
-        if index == 0:
-            print("<thead><tr>", end="")
         print(f"<th>{'' if head is None else head}</th>", end="")
-    else:
-        print("</tr></thead>")
+    print("</tr></thead>")
     print('<tbody>')
     for row in res:
         print('<tr>', end='')
@@ -579,8 +571,7 @@ def print_html4(header, res):
 
 def print_xml(header, res):
     global human
-    end = '\n' if human else ""
-    intend = " " * 4 if human else ""
+    end, intend = '\n' if human else "", " " * 4 if human else ""
     for row in res:
         print("<RECORD>", end=end)
         for h, e in zip(header, row):
@@ -639,14 +630,14 @@ def before_print(header, res, columns, fold=True):
     """
         需要注意不能改变原本数据的类型，除了需要替换成其它数据的情况
     """
-    res = [] if res is None else [row if isinstance(row, list) else list(row) for row in res]
-    res.insert(0, header if isinstance(header, list) else list(header))
-    res = [[line[i] for i in columns] for line in res] if columns else res
+    if res is None:
+        return []
     global limit_rows
     if limit_rows:
-        header = res.pop(0)
         res = res[limit_rows[0]:limit_rows[1]]
-        res.insert(0, header)
+    res = [row if isinstance(row, list) else list(row) for row in res]
+    res.insert(0, header if isinstance(header, list) else list(header))
+    res = [[line[i] for i in columns] for line in res] if columns else res
     deal_bin(res)
     res = deal_human(res) if human else res
     res = [[e if len(str(e)) < FOLD_LIMIT else
@@ -660,10 +651,6 @@ def run_one_sql(sql: str, fold=True, columns=None):
         return
     run_sql(sql, conn, fold, columns)
     conn.close()
-
-
-def scan_table(table_name, fold=True, columns=None):
-    run_one_sql(f"select * from {table_name}", fold, columns)
 
 
 def print_result_set(header, res, columns, fold, sql, index=0):
@@ -694,8 +681,7 @@ def print_result_set(header, res, columns, fold, sql, index=0):
     elif out_format == 'csv':
         print_csv(header, res)
     elif out_format == 'text':
-        print_table(header, res, start_func=lambda a: a,
-                    after_print_row_func=lambda a, b, c, d, e: a, end_func=lambda a, b: a)
+        print_table(header, res, '-', lambda a: a, lambda a, b, c, d, e: a, lambda a, b: a)
     else:
         print_error_msg(f'Invalid print format : "{out_format}"!')
 
@@ -753,8 +739,10 @@ def default_after_print_row(row_num, row_total_num, max_row_length, split_char, 
         print(split_char * table_width)
 
 
-def print_table(header, res, split_row_char='-', start_func=lambda table_width: print(INFO_COLOR.wrap('Result Sets:')),
-                after_print_row_func=default_after_print_row, end_func=lambda table_width, total: print(INFO_COLOR.wrap(f'Total Records: {total}'))):
+def print_table(header, res, split_row_char='-',
+                start_func=lambda table_width: print(INFO_COLOR.wrap('Result Sets:')),
+                after_print_row_func=default_after_print_row,
+                end_func=lambda table_width, total: print(INFO_COLOR.wrap(f'Total Records: {total}'))):
     def _deal_res(res, _align_list):
         for row in res:
             for index, e in enumerate(row):
@@ -763,8 +751,7 @@ def print_table(header, res, split_row_char='-', start_func=lambda table_width: 
                         .replace('\0', '\\0').replace('\b', '\\b')
                 elif isinstance(e, (int, float)):
                     # 数字采用右对齐
-                    _align_list[index] = Align.ALIGN_RIGHT
-                    row[index] = str(e)
+                    _align_list[index], row[index] = Align.ALIGN_RIGHT, str(e)
                 elif e is None:
                     row[index] = NULL_STR
                 else:
@@ -772,15 +759,16 @@ def print_table(header, res, split_row_char='-', start_func=lambda table_width: 
         return res, _align_list
 
     row_total_num = len(res)
+    col_total_num = len(header)
     res.insert(0, header)
-    default_align = [Align.ALIGN_LEFT for i in range(len(header))]
+    default_align = [Align.ALIGN_LEFT for i in range(col_total_num)]
     res, align_list = _deal_res(res, default_align.copy())
     max_length_each_fields = get_max_length_each_fields(res, str_width)
     header = res.pop(0)
     # 数据的总长度
     max_row_length = sum(max_length_each_fields)
     # 表格的宽度(数据长度加上分割线)
-    table_width = 1 + max_row_length + 3 * len(header)
+    table_width = 1 + max_row_length + 3 * col_total_num
     space_list_down = [(split_row_char * i, i) for i in max_length_each_fields]
     start_func(table_width)
     # 打印表格的上顶线
@@ -869,10 +857,9 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
 
 def read_info():
     proc_home = get_proc_home()
-    file = os.path.join(proc_home, 'config/.db.info')
     with open(os.path.join(proc_home, 'config/.db.info.lock'), mode='w+') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        with open(file, mode='r', encoding='UTF8') as info_file:
+        with open(os.path.join(proc_home, 'config/.db.info'), mode='r', encoding='UTF8') as info_file:
             info_obj = json.loads(''.join(info_file.readlines()))
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     return info_obj
@@ -880,10 +867,9 @@ def read_info():
 
 def write_info(info):
     proc_home = get_proc_home()
-    file = os.path.join(proc_home, 'config/.db.info')
     with open(os.path.join(proc_home, 'config/.db.info.lock'), mode='w+') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        with open(file, mode='w+', encoding='UTF8') as info_file:
+        with open(os.path.join(proc_home, 'config/.db.info'), mode='w+', encoding='UTF8') as info_file:
             info_file.write(json.dumps(info, indent=2))
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
@@ -1064,7 +1050,7 @@ def show_conf():
             new_row = [env, conf]
             new_row.extend([dbconf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
-    header, res = before_print(head, print_content, columns, fold=False)
+    header, res = before_print(head, print_content, columns, fold)
     print_table(header, res)
     write_history('conf', '', Stat.OK)
 
@@ -1123,7 +1109,7 @@ def parse_args(args):
     option = args[1].strip().lower() if len(args) > 1 else ''
     global out_format, human, export_type, limit_rows
     columns, fold, export_type, human, out_format, set_format, set_human, set_export_type, set_columns, set_fold, \
-    set_raw, set_row_limit, limit_rows, set_show_obj = None, True, 'all', False, 'table', False, False, False, False, False, False, False, None,False
+    set_raw, set_row_limit, limit_rows, set_show_obj = None, True, 'all', False, 'table', False, False, False, False, False, False, False, None, False
     option_val = args[2] if len(args) > 2 else ''
     parse_start_pos = 3 if option == 'sql' else 2
     if len(args) > parse_start_pos:
@@ -1169,7 +1155,6 @@ def parse_args(args):
                 human, set_human = True, True
             else:
                 _error_param_exit(p)
-
     return option, columns, fold, option_val
 
 
@@ -1191,7 +1176,7 @@ if __name__ == '__main__':
         elif opt == 'sql':
             run_one_sql(option_val, fold, columns)
         elif opt == 'scan':
-            scan_table(option_val, fold, columns)
+            run_one_sql(f"SELECT * FROM {option_val}", fold, columns)
         elif opt == 'set':
             set_info(option_val)
         elif opt == 'lock':
