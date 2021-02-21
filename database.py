@@ -925,9 +925,9 @@ def shell():
     conn, conf = get_connection()
     if conn is None:
         return
-    val = input('db>')
+    val = input('db>').strip()
     while val not in {'quit', '!q', 'exit'}:
-        if not (val == '' or val.strip() == ''):
+        if val == '':
             run_sql(val, conn)
         val = input('db>')
     conn.close()
@@ -936,26 +936,26 @@ def shell():
 
 
 def load(path):
-    def exe_sql(cur, sql):
+    def exe_sql(_cur, _sql):
         try:
-            if not sql:
+            if not _sql:
                 return 0, 0
-            effect_rows = cur.execute(sql)
+            effect_rows = _cur.execute(_sql)
             description, res = [], []
             try:
-                description.append(cur.description)
-                res.append(cur.fetchall())
-                while cur.nextset():
-                    description.append(cur.description)
-                    res.append(cur.fetchall())
+                description.append(_cur.description)
+                res.append(_cur.fetchall())
+                while _cur.nextset():
+                    description.append(_cur.description)
+                    res.append(_cur.fetchall())
             except:
                 if effect_rows:
                     print(WARN_COLOR.wrap(f'Effect rows:{effect_rows}'))
             for r, d in zip(res, description):
-                print_result_set(get_table_head_from_description(d), r, None, False, sql)
+                print_result_set(get_table_head_from_description(d), r, None, False, _sql)
             return 1, 0
         except BaseException as be:
-            print(f"SQL:{ERROR_COLOR.wrap(sql)}, ERROR MESSAGE:{ERROR_COLOR.wrap(be)}")
+            print(f"SQL:{ERROR_COLOR.wrap(_sql)}, ERROR MESSAGE:{ERROR_COLOR.wrap(be)}")
             return 0, 1
 
     success_num, fail_num = 0, 0
@@ -1152,7 +1152,7 @@ if __name__ == '__main__':
         elif opt == 'test':
             test()
         elif opt == 'version':
-            print('db 2.0.6')
+            print('db 2.0.7')
         else:
             print_error_msg("Invalid operation!")
             print_usage()
