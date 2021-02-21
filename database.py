@@ -314,7 +314,7 @@ def get_max_length_each_fields(rows, func):
 def get_list_obj_sql(obj, serverType, dbName):
     if obj == 'database':
         if serverType == 'mysql':
-            return f"SELECT DISTINCT TABLE_SCHEMA `Database` FROM information_schema.tables ORDER BY TABLE_SCHEMA"
+            return f"SELECT DISTINCT TABLE_SCHEMA `Database` FROM information_schema.tables ORDER BY `Database`"
         else:
             return "SELECT name [Database] FROM sys.sysdatabases ORDER BY name"
     elif obj == 'table':
@@ -324,9 +324,9 @@ def get_list_obj_sql(obj, serverType, dbName):
             return "SELECT name [Table] FROM sys.tables ORDER BY name"
     elif obj == 'view':
         if serverType == 'mysql':
-            return f"select distinct TABLE_NAME `View` from information_schema.views WHERE TABLE_SCHEMA='{dbName}' ORDER BY TABLE_NAME"
+            return f"select DISTINCT TABLE_NAME `View` from information_schema.views WHERE TABLE_SCHEMA='{dbName}' ORDER BY `View`"
         else:
-            return f"select distinct TABLE_NAME [View] from information_schema.views WHERE TABLE_CATALOG='{dbName}' ORDER BY TABLE_NAME"
+            return f"select DISTINCT TABLE_NAME [View] from information_schema.views WHERE TABLE_CATALOG='{dbName}' ORDER BY TABLE_NAME"
 
 
 def show(obj='table'):
