@@ -392,8 +392,6 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
                     res_list.append(f" DEFAULT {row2[12]}")
                 if row[3] == 'NO':
                     res_list.append(" NOT NULL")
-            if foreignDict.get(col_name, None):
-                res_list.append(f" CONSTRAINT {foreignDict[col_name][1]} REFERENCES {foreignDict[col_name][3]}")
             if index == len(res) - 1:
                 res_list.append(f",\n  PRIMARY KEY({','.join(primary_key)})" if primary_key else '')
                 res_list.append(',\n' if mul_unique else '')
@@ -414,6 +412,9 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
                     f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res[0][1]}', 'TABLE', '{tbName}';""" if
                     com[4] == 0 else \
                         f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res[0][1]}', 'TABLE', '{tbName}', 'COLUMN', '{com[0]}';""")
+        for k, v in foreignDict.items():
+            res_list.append(f'\nALTER TABLE [{res[0][0]}].[{res[0][1]}].[{res[0][2]}] WITH CHECK ADD CONSTRAINT {v[1]} FOREIGN KEY({k}) REFERENCES [{res[0][0]}].[{res[0][1]}].[{v[3]}] ({v[4]});\n')
+            res_list.append(f'ALTER TABLE [{res[0][0]}].[{res[0][1]}].[{res[0][2]}] CHECK CONSTRAINT {v[1]};')
         print(''.join(res_list))
 
     if conf['servertype'] == 'mysql':
@@ -423,22 +424,19 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
 
 
 def get_sqlserver_index_information_dict(conn, database, tab_name, dbo='dbo'):
-    """
-       :return: {colName:(colName,CONSTRAINT_NAME,indexType,referenced)}
-    """
     index_formation = exe_query(
-        f"""(SELECT COLUMN_NAME,CONSTRAINT_NAME,k.type,'' referenced FROM sys.key_constraints k LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE c ON k.name=c.CONSTRAINT_NAME WHERE c.TABLE_CATALOG='{database}' AND c.TABLE_SCHEMA='{dbo}' AND c.TABLE_NAME='{tab_name}') \
-        UNION (SELECT c.COLUMN_NAME,r.CONSTRAINT_NAME,f.type, object_name(f.referenced_object_id) referenced FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS r LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE c ON c.CONSTRAINT_NAME=r.CONSTRAINT_NAME JOIN sys.foreign_keys f ON f.name=c.CONSTRAINT_NAME \
-        WHERE c.TABLE_CATALOG='{database}' AND c.TABLE_SCHEMA='{dbo}' AND c.TABLE_NAME='{tab_name}')""",
+        f"""SELECT c.name colName,object_name(constraint_object_id) constName,'FK' type,object_name(referenced_object_id) refTabName,c1.name refColName FROM sys.foreign_key_columns f JOIN sys.tables t ON t.object_id=f.parent_object_id JOIN sys.columns c ON c.object_id=f.parent_object_id AND c.column_id=f.parent_column_id JOIN sys.columns c1 ON c1.object_id=f.referenced_object_id AND c1.column_id=f.referenced_column_id JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE t.name='{tab_name}' AND s.name='{dbo}' \
+UNION SELECT COLUMN_NAME colName,CONSTRAINT_NAME constName,k.type,NULL refTabName,NULL refColName FROM sys.key_constraints k LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE c ON k.name=c.CONSTRAINT_NAME WHERE c.TABLE_SCHEMA='{dbo}' AND c.TABLE_NAME='{tab_name}'""",
         conn)[1]
+    # {colName:(colName,constName,indexType,refTabName,refColName)}
     return {fmt[0]: fmt for fmt in index_formation[0]} if index_formation else dict(), \
-           {fmt[0]: fmt for fmt in index_formation[0] if fmt[2] not in {'PK', 'UQ'}} if index_formation else dict()
+           {fmt[0]: fmt for fmt in index_formation[0] if fmt[2] == 'FK'} if index_formation else dict()
 
 
 def print_table_description(conf, conn, tab_name, columns, fold):
     sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT FROM information_schema.columns WHERE table_schema='{conf['database']}' AND table_name='{tab_name}'"""
     if conf['servertype'] == 'sqlserver':
-        sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'auto_increment' ELSE '' END Extra,ISNULL(CONVERT(varchar,ep.value), '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab_name}' ORDER BY col.colorder"""
+        sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'IDENTITY' ELSE '' END Extra,ISNULL(CONVERT(varchar,ep.value), '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab_name}' ORDER BY col.colorder"""
     res = exe_query(sql, conn)[1]
     if not res or not res[0]:
         print_error_msg(f"{tab_name} not found!")
@@ -452,7 +450,7 @@ def print_table_description(conf, conn, tab_name, columns, fold):
                 row[1] = f'{row[1]}({"max" if cml == -1 else cml})'
             elif data_type in ('decimal', 'numeric'):
                 row[1] = f'{row[1]}({np},{ns})'
-            t = indexDict.get(row[0], ('', '', '',''))
+            t = indexDict.get(row[0], ('', '', '','',''))
             f = foreignDict.get(row[0], None)
             if t[2] == 'PK':
                 key = 'PK'
@@ -462,7 +460,7 @@ def print_table_description(conf, conn, tab_name, columns, fold):
                 key = ''
             if f:
                 key = f'{key},FK' if key else 'FK'
-                row[4] = f'{row[4]},Referenced {f[3]}' if row[4] else f'Referenced {f[3]}'
+                row[4] = f'{row[4]},REFERENCES {f[3]}.{f[4]}' if row[4] else f'REFERENCES {f[3]}.{f[4]}'
             row.insert(3, key)
             row[4] = '' if row[4] is None else row[4]
     else:
@@ -841,7 +839,7 @@ def parse_info_obj(read_info, info_obj, opt=Opt.READ):
                         read_info['use']['conf'] = set_conf_value
                         print(INFO_COLOR.wrap(f"set conf={set_conf_value} ok."))
                 elif opt is Opt.UPDATE:
-                    i = input(WARN_COLOR.wrap("Are you sure you want to add this configuration? Y/N:")).lower()
+                    i = input(WARN_COLOR.wrap("Are you sure you want to add this configuration? \nY/N:")).lower()
                     if i in ('y', 'yes'):
                         read_info['use']['conf'] = set_conf_value
                         read_info['conf'][read_info['use']['env']][read_info['use']['conf']] = {}
@@ -1007,16 +1005,16 @@ def load(path):
                 print_result_set(get_table_head_from_description(d), r, None, False, sql)
             return 1, 0
         except BaseException as e:
-            print(f"SQL:{ERROR_COLOR.wrap(sql)}, ERROR:{ERROR_COLOR.wrap(e)}")
+            print(f"SQL:{ERROR_COLOR.wrap(sql)}, ERROR MESSAGE:{ERROR_COLOR.wrap(e)}")
             return 0, 1
 
+    success_num, fail_num = 0, 0
     try:
         if os.path.exists(path):
             conn, config = get_connection()
             if conn is None:
                 return
             cur = conn.cursor()
-            success_num, fail_num = 0, 0
             with open(path, mode='r', encoding='UTF8') as sql_file:
                 sql = ''
                 for line in sql_file.readlines():
@@ -1038,15 +1036,17 @@ def load(path):
                     success, fail = exe_sql(cur, sql)
                     success_num += success
                     fail_num += fail
-            conn.commit()
+            if success_num > 0:
+                conn.commit()
+            cur.close()
             conn.close()
-            print(INFO_COLOR.wrap(f'load ok. {success_num} successfully executed, {fail_num} failed.'))
+            print(INFO_COLOR.wrap(f'end load. {success_num} successfully executed, {fail_num} failed.'))
             write_history('load', path, Stat.OK)
         else:
             print_error_msg(f"path:{path} not exist!")
             write_history('load', path, Stat.ERROR)
     except BaseException as e:
-        print_error_msg(f"load {path} fail! {e}")
+        print_error_msg(e)
         write_history('load', path, Stat.ERROR)
 
 
@@ -1203,7 +1203,7 @@ if __name__ == '__main__':
         elif opt == 'test':
             test()
         elif opt == 'version':
-            print('db 2.0.5')
+            print('db 2.0.6')
         else:
             print_error_msg("Invalid operation!")
             print_usage(error_condition=True)
