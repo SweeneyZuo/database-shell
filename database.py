@@ -227,9 +227,9 @@ def exe_query(sql, conn):
             description.append(cur.description)
             res_list.append(cur.fetchall())
         write_history('sql', sql, Stat.OK)
-    except BaseException as e:
+    except BaseException as be:
         write_history('sql', sql, Stat.ERROR)
-        print_error_msg(e)
+        print_error_msg(be)
     return description, res_list
 
 
@@ -250,9 +250,9 @@ def exe_no_query(sql, conn):
         conn.commit()
         success = True
         write_history('sql', sql, Stat.OK)
-    except BaseException as e:
+    except BaseException as be:
         write_history('sql', sql, Stat.ERROR)
-        print_error_msg(e)
+        print_error_msg(be)
     return effect_rows, description, res, success
 
 
@@ -320,9 +320,9 @@ def get_list_obj_sql(obj, serverType, dbName):
             return "SELECT name [Table] FROM sys.tables ORDER BY name"
     elif obj in {'view', 'views'}:
         if serverType == 'mysql':
-            return f"select DISTINCT TABLE_NAME `View` FROM information_schema.views WHERE TABLE_SCHEMA='{dbName}' ORDER BY `View`"
+            return f"SELECT DISTINCT TABLE_NAME `View` FROM information_schema.views WHERE TABLE_SCHEMA='{dbName}' ORDER BY `View`"
         else:
-            return f"select DISTINCT TABLE_NAME [View] FROM information_schema.views WHERE TABLE_CATALOG='{dbName}' ORDER BY TABLE_NAME"
+            return f"SELECT DISTINCT TABLE_NAME [View] FROM information_schema.views WHERE TABLE_CATALOG='{dbName}' ORDER BY TABLE_NAME"
     else:
         return None
 
@@ -360,8 +360,8 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
             print_error_msg(f"{tab} not found!")
             return
         effect_rows2, description2, res2, success = exe_no_query(sql2, conn)
-        header, res = before_print(get_table_head_from_description(description[0]), res[0], None, fold=False)
-        header2, res2 = before_print(get_table_head_from_description(description2[0]), res2[0], None, fold=False)
+        header, res = before_print(get_table_head_from_description(description[0]), res[0], None, False)
+        header2, res2 = before_print(get_table_head_from_description(description2[0]), res2[0], None, False)
         index_dict, foreign_dict = get_sqlserver_index_information_dict(conn, conf['database'], tab)
         primary_key, mul_unique = [], {}
         for k, v in index_dict.items():
@@ -427,7 +427,7 @@ UNION SELECT COLUMN_NAME colName,CONSTRAINT_NAME constName,k.type,NULL refTabNam
            {fmt[0]: fmt for fmt in index_formation[0] if fmt[2] == 'FK'} if index_formation else dict()
 
 
-def print_table_description(conf, conn, tab, columns, fold):
+def print_table_description(conf, conn, tab, _columns, _fold):
     sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT FROM information_schema.columns WHERE table_schema='{conf['database']}' AND table_name='{tab}'"""
     if conf['servertype'] == 'sqlserver':
         sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'IDENTITY' ELSE '' END Extra,ISNULL(CONVERT(varchar,ep.value), '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab}' ORDER BY col.colorder"""
@@ -437,15 +437,15 @@ def print_table_description(conf, conn, tab, columns, fold):
         return
     res = list(map(lambda row: list(row), res[0]))
     if conf['servertype'] == 'sqlserver':
-        indexDict,foreignDict = get_sqlserver_index_information_dict(conn, conf['database'], tab)
+        index_dict,foreign_dict = get_sqlserver_index_information_dict(conn, conf['database'], tab)
         for row in res:
             data_type, cml, np, ns = row[1], row.pop(2), row.pop(2), row.pop(2)
             if cml and row[1] not in {'text', 'ntext', 'xml'}:
                 row[1] = f'{row[1]}({"max" if cml == -1 else cml})'
             elif data_type in ('decimal', 'numeric'):
                 row[1] = f'{row[1]}({np},{ns})'
-            t = indexDict.get(row[0], ('', '', '','',''))
-            f = foreignDict.get(row[0], None)
+            t = index_dict.get(row[0], ('', '', '','',''))
+            f = foreign_dict.get(row[0], None)
             if t[2] == 'PK':
                 key = 'PK'
             elif t[2] == 'UQ':
@@ -460,20 +460,20 @@ def print_table_description(conf, conn, tab, columns, fold):
     else:
         for row in res:
             row[4] = '' if row[4] is None else row[4]
-    print_result_set(['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment'], res, columns, fold, None)
+    print_result_set(['Name', 'Type', 'Nullable', 'Key', 'Default', 'Extra', 'Comment'], res, _columns, _fold, None)
 
 
-def desc_table(tab_name, fold, columns):
+def desc_table(tab_name, _fold, _columns):
     conn, conf = get_connection()
     if conn is None:
         return
-    print_table_schema(conf, conn, tab_name, columns, fold)
+    print_table_schema(conf, conn, tab_name, _columns, _fold)
     conn.close()
 
 
-def print_table_schema(conf, conn, tab_name, columns, fold=False, attach_sql=False):
+def print_table_schema(conf, conn, tab_name, _columns, _fold=False, attach_sql=False):
     if out_format != 'sql':
-        print_table_description(conf, conn, tab_name, columns, fold)
+        print_table_description(conf, conn, tab_name, _columns, _fold)
         if not attach_sql:
             return
     if out_format in {'sql', 'markdown'}:
@@ -489,8 +489,7 @@ def print_json(header, res):
     global human
     for row in res:
         row = map(lambda e: e if isinstance(e, (str, int, float)) else str(e), row)
-        print(json.dumps(dict(zip(header, row)), indent=2, ensure_ascii=False)) \
-            if human else print(json.dumps(dict(zip(header, row)), ensure_ascii=False))
+        print(json.dumps(dict(zip(header, row)), indent=2 if human else None, ensure_ascii=False))
 
 
 def print_config(path):
@@ -520,8 +519,8 @@ def print_html3(header, res):
 def print_html2(header, res):
     print_config('html/html2.head')
     print_header_with_html(header)
-    for row_num, row in enumerate(res):
-        print(f"""<tr{'' if row_num % 2 == 0 else ' class="alt"'}>{''.join(map(lambda e: f"<td>{deal_html_elem(e)}</td>", row))}</tr>""")
+    for rdx, row in enumerate(res):
+        print(f"""<tr{'' if rdx % 2 == 0 else ' class="alt"'}>{''.join(map(lambda o: f"<td>{deal_html_elem(o)}</td>", row))}</tr>""")
     print("</table>\n</body>\n</html>")
 
 
@@ -591,7 +590,7 @@ def deal_bin(res):
             if isinstance(e, (bytearray, bytes)):
                 try:
                     row[cdx] = str(e, 'utf8')
-                except Exception as ex:
+                except Exception:
                     row[cdx] = str(base64.standard_b64encode(e), 'utf8')
 
 
@@ -622,7 +621,7 @@ def run_one_sql(sql: str, _fold=True, _columns=None):
     conn.close()
 
 
-def print_result_set(header, res, _columns, _fold, sql, index=0):
+def print_result_set(header, res, _columns, _fold, sql, res_index=0):
     if not header:
         return
     if not res and out_format == 'table':
@@ -630,7 +629,7 @@ def print_result_set(header, res, _columns, _fold, sql, index=0):
         return
     header, res = before_print(header, res, _columns, _fold)
     if out_format == 'table':
-        print_table(header, res, start_func=lambda table_width: print(INFO_COLOR.wrap(f'Result Sets [{index}]:')))
+        print_table(header, res, start_func=lambda table_width: print(INFO_COLOR.wrap(f'Result Sets [{res_index}]:')))
     elif out_format == 'sql' and sql is not None:
         print_insert_sql(header, res, get_tab_name_from_sql(sql))
     elif out_format == 'json':
@@ -652,12 +651,12 @@ def print_result_set(header, res, _columns, _fold, sql, index=0):
     elif out_format == 'text':
         print_table(header, res, '-', lambda a: a, lambda a, b, c, d, e: a, lambda a, b: a)
     else:
-        print_error_msg(f'Invalid print format : "{out_format}"!')
+        print_error_msg(f'Invalid out format : "{out_format}"!')
 
 
 def deal_human(rows):
     def can_human(field_name):
-        return 'time' in field_name or 'date' in field_name
+        return 'time' in field_name
 
     human_time_cols = set(i for i in range(len(rows[0])) if can_human(str(rows[0][i]).lower()))
     for rdx, row in enumerate(rows):
@@ -674,15 +673,14 @@ def print_insert_sql(header, res, tab_name):
     def _case_for_sql(row):
         for cdx, e in enumerate(row):
             if e is None:
-                row[cdx] = "NULL"
+                yield "NULL"
             elif isinstance(e, (int, float)):
-                row[cdx] = str(e)
+                yield str(e)
             elif isinstance(e, str):
-                row[cdx] = "'{}'".format(e.replace("'", "''").replace('\r', '\\r').replace('\n', '\\n')
+                yield "'{}'".format(e.replace("'", "''").replace('\r', '\\r').replace('\n', '\\n')
                                          .replace('\t', '\\t').replace('\0', '\\0').replace('\b', '\\b'))
             else:
-                row[cdx] = f"'{e}'"
-        return row
+                yield f"'{e}'"
 
     if tab_name is None:
         print_error_msg("Can't get table name!")
@@ -702,8 +700,8 @@ def print_table(header, res, split_row_char='-',
                 start_func=lambda table_width: print(INFO_COLOR.wrap('Result Sets:')),
                 after_print_row_func=default_after_print_row,
                 end_func=lambda table_width, total: print(INFO_COLOR.wrap(f'Total Records: {total}'))):
-    def _deal_res(res, _align_list):
-        for row in res:
+    def _deal_res(_res, _align_list):
+        for row in _res:
             for cdx, e in enumerate(row):
                 if isinstance(e, str):
                     row[cdx] = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
@@ -715,7 +713,7 @@ def print_table(header, res, split_row_char='-',
                     row[cdx] = NULL_STR
                 else:
                     row[cdx] = str(e)
-        return res, _align_list
+        return _res, _align_list
 
     row_total_num = len(res)
     col_total_num = len(header)
@@ -751,9 +749,9 @@ def print_info():
         read_config = read_info()
         show_database_info({} if read_config is None else read_config)
         write_history('info', '', Stat.OK)
-    except BaseException as  e:
+    except BaseException as be:
         write_history('info', '', Stat.ERROR)
-        print_error_msg(e)
+        print_error_msg(be)
 
 
 def disable_color():
@@ -839,7 +837,7 @@ def set_info(kv):
         with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w') as lock:
             try:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as bioe:
+            except BlockingIOError:
                 print_error_msg("set fail, please retry!")
                 write_history('set', kv, Stat.ERROR)
                 return
@@ -852,9 +850,9 @@ def set_info(kv):
             write_info(parse_info_obj(read_info(), info_obj, Opt.UPDATE))
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             write_history('set', kv, Stat.OK)
-    except BaseException as e:
+    except BaseException as be:
         write_history('set', kv, Stat.ERROR)
-        print_error_msg(e)
+        print_error_msg(be)
 
 
 def is_locked():
@@ -1053,9 +1051,9 @@ def export():
                 run_sql(f'SELECT * FROM {tab[0]}', conn, fold)
                 print(split_line)
         write_history('export', export_type, Stat.OK)
-    except BaseException as e:
+    except BaseException as be:
         write_history('export', export_type, Stat.ERROR)
-        print_error_msg(e)
+        print_error_msg(be)
     finally:
         conn.close()
 
