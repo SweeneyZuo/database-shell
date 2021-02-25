@@ -370,7 +370,7 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
             elif v[2] == 'UQ':
                 mul_unique[v[1]] = l = mul_unique.get(v[1], [])
                 l.append(k)
-        res_list.append(f"CREATE TABLE [{res[0][0]}].[{tab}].[{res[0][2]}] (\n")
+        res_list.append(f"CREATE TABLE [{res[0][0]}].[{res[0][1]}].[{tab}] (\n")
         for index, (row, row2) in enumerate(zip(res, res2)):
             col_name, data_type = row2[3], row[4]
             if row[8]:
@@ -407,8 +407,8 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
                     com[4] == 0 else \
                         f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res[0][1]}', 'TABLE', '{tab}', 'COLUMN', '{com[0]}';""")
         for k, v in foreign_dict.items():
-            res_list.append(f'\nALTER TABLE [{res[0][0]}].[{tab}].[{res[0][2]}] WITH CHECK ADD CONSTRAINT {v[1]} FOREIGN KEY({k}) REFERENCES [{res[0][0]}].[{res[0][1]}].[{v[3]}] ({v[4]});\n')
-            res_list.append(f'ALTER TABLE [{res[0][0]}].[{tab}].[{res[0][2]}] CHECK CONSTRAINT {v[1]};')
+            res_list.append(f'\nALTER TABLE [{res[0][0]}].[{res[0][1]}].[{tab}] WITH CHECK ADD CONSTRAINT {v[1]} FOREIGN KEY({k}) REFERENCES [{res[0][0]}].[{res[0][1]}].[{v[3]}] ({v[4]});\n')
+            res_list.append(f'ALTER TABLE [{res[0][0]}].[{res[0][1]}].[{tab}] CHECK CONSTRAINT {v[1]};')
         return ''.join(res_list)
 
     if conf['servertype'] == 'mysql':
