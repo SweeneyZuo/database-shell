@@ -236,6 +236,8 @@ def exe_query(sql, conn):
 def exe_no_query(sql, conn):
     effect_rows, description, res, success = None, [], [], False
     try:
+        if sql.lower().startswith('create'):
+            conn.autocommit(True)
         cur = conn.cursor()
         effect_rows = cur.execute(sql)
         description.append(cur.description)
@@ -244,10 +246,10 @@ def exe_no_query(sql, conn):
             while cur.nextset():
                 description.append(cur.description)
                 res.append(cur.fetchall())
+            conn.commit()
         except:
             if not effect_rows and out_format == 'table':
                 print(WARN_COLOR.wrap('Empty Sets!'))
-        conn.commit()
         success = True
         write_history('sql', sql, Stat.OK)
     except BaseException as be:
@@ -310,7 +312,7 @@ def get_max_length_each_fields(rows, func):
 def get_list_obj_sql(obj, serverType, dbName):
     if obj in {'database', 'databases'}:
         if serverType == 'mysql':
-            return f"SELECT DISTINCT TABLE_SCHEMA `Database` FROM information_schema.tables ORDER BY `Database`"
+            return f"SELECT SCHEMA_NAME `Database` FROM information_schema.SCHEMATA ORDER BY `Database`"
         else:
             return "SELECT name [Database] FROM sys.sysdatabases ORDER BY name"
     elif obj in {'table', 'tables'}:
@@ -570,7 +572,7 @@ def print_markdown(header, res):
         print(table_row_str(row, max_length_each_fields, align_list, Color.NO_COLOR))
 
 
-def run_sql(sql: str, conn, _fold=True, _columns=None):
+def run_sql(sql: str, conn, _fold=True, _columns=None, conf=None):
     sql, description, res, effect_rows = sql.strip(), None, None, None
     if sql.lower().startswith(('select', 'show')):
         description, res = exe_query(sql, conn)
@@ -578,7 +580,7 @@ def run_sql(sql: str, conn, _fold=True, _columns=None):
         effect_rows, description, res, success = exe_no_query(sql, conn)
     if description and res:
         for index, (d, r) in enumerate(zip(description, res)):
-            print_result_set(get_table_head_from_description(d), r, _columns, _fold, sql, index)
+            print_result_set(get_table_head_from_description(d), r, _columns, _fold, sql, index, conf)
             print()
     if effect_rows and out_format == 'table':
         print(INFO_COLOR.wrap(f'Effect rows:{effect_rows}'))
@@ -617,11 +619,11 @@ def run_one_sql(sql: str, _fold=True, _columns=None):
     conn, conf = get_connection()
     if conn is None:
         return
-    run_sql(sql, conn, _fold, _columns)
+    run_sql(sql, conn, _fold, _columns, conf)
     conn.close()
 
 
-def print_result_set(header, res, _columns, _fold, sql, res_index=0):
+def print_result_set(header, res, _columns, _fold, sql, res_index=0, conf=None):
     if not header:
         return
     if not res and out_format == 'table':
@@ -630,8 +632,8 @@ def print_result_set(header, res, _columns, _fold, sql, res_index=0):
     header, res = before_print(header, res, _columns, _fold)
     if out_format == 'table':
         print_table(header, res, start_func=lambda table_width: print(INFO_COLOR.wrap(f'Result Sets [{res_index}]:')))
-    elif out_format == 'sql' and sql is not None:
-        print_insert_sql(header, res, get_tab_name_from_sql(sql))
+    elif out_format == 'sql' and sql and conf:
+        print_insert_sql(header, res, get_tab_name_from_sql(sql), conf['servertype'])
     elif out_format == 'json':
         print_json(header, res)
     elif out_format == 'html':
@@ -669,7 +671,7 @@ def deal_human(rows):
     return rows
 
 
-def print_insert_sql(header, res, tab_name):
+def print_insert_sql(header, res, tab_name, server_type):
     def _case_for_sql(row):
         for cdx, e in enumerate(row):
             if e is None:
@@ -686,9 +688,10 @@ def print_insert_sql(header, res, tab_name):
         print_error_msg("Can't get table name!")
         return
     if res:
-        header = list(map(lambda x: str(x), header))
-        print(f"""INSERT INTO {tab_name} ({','.join(header)}) VALUES {{}};"""
-              .format(",\n".join(map(lambda row: f'({",".join(_case_for_sql(row))})', res))))
+        header = list(map(lambda x: f'`{str(x)}`' if server_type == 'mysql' else f'[{str(x)}]', header))
+        insert_prefix = f"INSERT INTO {tab_name} ({','.join(header)}) VALUES"
+        for row in res:
+            print(f"""{insert_prefix} ({','.join(_case_for_sql(row))});""")
 
 
 def default_after_print_row(row_num, row_total_num, max_row_length, split_char, table_width):
@@ -715,8 +718,7 @@ def print_table(header, res, split_row_char='-',
                     row[cdx] = str(e)
         return _res, _align_list
 
-    row_total_num = len(res)
-    col_total_num = len(header)
+    row_total_num, col_total_num = len(res), len(header)
     res.insert(0, header)
     default_align = [Align.ALIGN_LEFT for i in range(col_total_num)]
     res, align_list = _deal_res(res, default_align.copy())
@@ -950,7 +952,7 @@ def load(path):
                 if effect_rows:
                     print(WARN_COLOR.wrap(f'Effect rows:{effect_rows}'))
             for r, d in zip(res, description):
-                print_result_set(get_table_head_from_description(d), r, None, False, _sql)
+                print_result_set(get_table_head_from_description(d), r, None, False, None, conf=None)
             return 1, 0
         except BaseException as be:
             print(f"SQL:{ERROR_COLOR.wrap(_sql)}, ERROR MESSAGE:{ERROR_COLOR.wrap(be)}")
@@ -1048,7 +1050,7 @@ def export():
                 print(split_line)
             if export_type in {'all', 'data'}:
                 print(print_template.format(f'Dumping data for {tab[0]}'), end='')
-                run_sql(f'SELECT * FROM {tab[0]}', conn, fold)
+                run_sql(f'SELECT * FROM {tab[0]}', conn, fold, conf=conf)
                 print(split_line)
         write_history('export', export_type, Stat.OK)
     except BaseException as be:
