@@ -236,7 +236,7 @@ def exe_query(sql, conn):
 def exe_no_query(sql, conn):
     effect_rows, description, res, success = None, [], [], False
     try:
-        if sql.lower().startswith('create'):
+        if sql.lower().startswith(('create', 'drop')):
             conn.autocommit(True)
         cur = conn.cursor()
         effect_rows = cur.execute(sql)
