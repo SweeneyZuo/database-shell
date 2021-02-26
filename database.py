@@ -368,11 +368,11 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
         primary_key, mul_unique = [], {}
         for k, v in index_dict.items():
             if v[2] == 'PK':
-                primary_key.append(k)
+                primary_key.append(f'[{k}]')
             elif v[2] == 'UQ':
                 mul_unique[v[1]] = l = mul_unique.get(v[1], [])
-                l.append(k)
-        res_list.append(f"CREATE TABLE [{res[0][0]}].[{res[0][1]}].[{tab}] (\n")
+                l.append(f'[{k}]')
+        res_list.append(f"CREATE TABLE [{res[0][1]}].[{tab}] (\n")
         for index, (row, row2) in enumerate(zip(res, res2)):
             col_name, data_type = row2[3], row[4]
             if row[8]:
@@ -393,7 +393,7 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
             if index == len(res) - 1:
                 res_list.append(f",\n  PRIMARY KEY({','.join(primary_key)})" if primary_key else '')
                 res_list.append(',\n' if mul_unique else '')
-                res_list.append(',\n'.join([f"  CONSTRAINT {k} UNIQUE({','.join(v)})" for k, v in mul_unique.items()]))
+                res_list.append(',\n'.join([f"  CONSTRAINT [{k}] UNIQUE({','.join(v)})" for k, v in mul_unique.items()]))
                 res_list.append('\n')
             else:
                 res_list.append(",\n")
@@ -409,8 +409,8 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
                     com[4] == 0 else \
                         f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res[0][1]}', 'TABLE', '{tab}', 'COLUMN', '{com[0]}';""")
         for k, v in foreign_dict.items():
-            res_list.append(f'\nALTER TABLE [{res[0][0]}].[{res[0][1]}].[{tab}] WITH CHECK ADD CONSTRAINT {v[1]} FOREIGN KEY({k}) REFERENCES [{res[0][0]}].[{res[0][1]}].[{v[3]}] ({v[4]});\n')
-            res_list.append(f'ALTER TABLE [{res[0][0]}].[{res[0][1]}].[{tab}] CHECK CONSTRAINT {v[1]};')
+            res_list.append(f'\nALTER TABLE [{res[0][1]}].[{tab}] WITH CHECK ADD CONSTRAINT [{v[1]}] FOREIGN KEY([{k}]) REFERENCES [{res[0][1]}].[{v[3]}] ([{v[4]}]);\n')
+            res_list.append(f'ALTER TABLE [{res[0][1]}].[{tab}] CHECK CONSTRAINT [{v[1]}];')
         return ''.join(res_list)
 
     if conf['servertype'] == 'mysql':
@@ -586,7 +586,7 @@ def run_sql(sql: str, conn, _fold=True, _columns=None, conf=None):
         print(INFO_COLOR.wrap(f'Effect rows:{effect_rows}'))
 
 
-def deal_bin(res):
+def deal_res(res):
     for row in res:
         for cdx, e in enumerate(row):
             if isinstance(e, (bytearray, bytes)):
@@ -594,6 +594,8 @@ def deal_bin(res):
                     row[cdx] = str(e, 'utf8')
                 except Exception:
                     row[cdx] = str(base64.standard_b64encode(e), 'utf8')
+            elif isinstance(e, bool):
+                row[cdx] = 1 if e else 0
 
 
 def before_print(header, res, _columns, _fold=True):
@@ -608,7 +610,7 @@ def before_print(header, res, _columns, _fold=True):
     res = [row if isinstance(row, list) else list(row) for row in res]
     res.insert(0, header if isinstance(header, list) else list(header))
     res = [[line[i] for i in _columns] for line in res] if _columns else res
-    deal_bin(res)
+    deal_res(res)
     res = deal_human(res) if human else res
     res = [[e if len(str(e)) < FOLD_LIMIT else
             f'{str(e)[:FOLD_LIMIT - 3]}{FOLD_REPLACE_STR}' for e in row] for row in res] if _fold else res
@@ -688,7 +690,8 @@ def print_insert_sql(header, res, tab_name, server_type):
         print_error_msg("Can't get table name!")
         return
     if res:
-        header = list(map(lambda x: f'`{str(x)}`' if server_type == 'mysql' else f'[{str(x)}]', header))
+        tab_name = f'`{tab_name}`' if server_type == 'mysql' else f'[{tab_name}]'
+        header = map(lambda x: f'`{str(x)}`' if server_type == 'mysql' else f'[{str(x)}]', header)
         insert_prefix = f"INSERT INTO {tab_name} ({','.join(header)}) VALUES"
         for row in res:
             print(f"""{insert_prefix} ({','.join(_case_for_sql(row))});""")
