@@ -7,7 +7,6 @@ import sys
 import json
 import html
 import fcntl
-import base64
 import pymssql
 import pymysql
 import hashlib
@@ -69,6 +68,14 @@ class Color(Enum):
 class Stat(Enum):
     OK = 'ok'
     ERROR = 'error'
+
+
+class HexObj(object):
+    def __init__(self, hex_str):
+        self.hex_str = f'0x{hex_str}'
+
+    def __str__(self):
+        return self.hex_str
 
 
 DEFAULT_CONF = 'default'
@@ -351,7 +358,7 @@ def get_create_table_ddl(conf, conn, tab):
 
     def get_create_table_sqlserver_ddl():
         def is_number(data_type):
-            return data_type in {'bigint', 'int', 'tinyint', 'smallint', 'float',
+            return data_type in {'bit', 'int', 'tinyint', 'smallint', 'bigint', 'float',
                                  'decimal', 'numeric', 'real', 'money', 'smallmoney'}
 
         res_list = []
@@ -593,7 +600,7 @@ def deal_res(res):
                 try:
                     row[cdx] = str(e, 'utf8')
                 except Exception:
-                    row[cdx] = str(base64.standard_b64encode(e), 'utf8')
+                    row[cdx] = HexObj(e.hex())
             elif isinstance(e, bool):
                 row[cdx] = 1 if e else 0
 
@@ -678,7 +685,7 @@ def print_insert_sql(header, res, tab_name, server_type):
         for cdx, e in enumerate(row):
             if e is None:
                 yield "NULL"
-            elif isinstance(e, (int, float)):
+            elif isinstance(e, (int, float, HexObj)):
                 yield str(e)
             elif isinstance(e, str):
                 yield "'{}'".format(e.replace("'", "''").replace('\r', '\\r').replace('\n', '\\n')
