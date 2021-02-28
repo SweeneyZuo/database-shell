@@ -362,15 +362,14 @@ def get_create_table_ddl(conf, conn, tab):
                                  'decimal', 'numeric', 'real', 'money', 'smallmoney'}
 
         res_list = []
-        sql, sql2 = f"""SELECT TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,ic.IS_NULLABLE,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE,tmp.definition FROM information_schema.columns ic LEFT JOIN (SELECT c.name col,c.definition FROM sys.computed_columns c \
-JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE t.name='{tab}' AND s.name='dbo') tmp ON ic.COLUMN_NAME=tmp.col WHERE ic.TABLE_NAME='{tab}' AND ic.TABLE_SCHEMA='dbo';""", f"sp_columns {tab}"
+        sql = f"""sp_columns {tab};SELECT TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,ic.IS_NULLABLE,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE,tmp.definition FROM information_schema.columns ic LEFT JOIN (SELECT c.name col,c.definition FROM sys.computed_columns c \
+JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE t.name='{tab}' AND s.name='dbo') tmp ON ic.COLUMN_NAME=tmp.col WHERE ic.TABLE_NAME='{tab}' AND ic.TABLE_SCHEMA='dbo'"""
         effect_rows, description, res, success = exe_no_query(sql, conn)
         if not res or not res[0]:
             print_error_msg(f"{tab} not found!")
             return
-        effect_rows2, description2, res2, success = exe_no_query(sql2, conn)
-        header, res = before_print(get_table_head_from_description(description[0]), res[0], None, False)
-        header2, res2 = before_print(get_table_head_from_description(description2[0]), res2[0], None, False)
+        header2, res1 = before_print(get_table_head_from_description(description[1]), res[1], None, False)
+        header, res2 = before_print(get_table_head_from_description(description[0]), res[0], None, False)
         index_dict, foreign_dict = get_sqlserver_index_information_dict(conn, conf['database'], tab)
         primary_key, mul_unique = [], {}
         for k, v in index_dict.items():
@@ -379,8 +378,8 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
             elif v[2] == 'UQ':
                 mul_unique[v[1]] = l = mul_unique.get(v[1], [])
                 l.append(f'[{k}]')
-        res_list.append(f"CREATE TABLE [{res[0][1]}].[{tab}] (\n")
-        for index, (row, row2) in enumerate(zip(res, res2)):
+        res_list.append(f"CREATE TABLE [{res1[0][1]}].[{tab}] (\n")
+        for index, (row, row2) in enumerate(zip(res1, res2)):
             col_name, data_type = row2[3], row[4]
             if row[8]:
                 res_list.append(f"  [{col_name}] AS {row[8]}")
@@ -397,7 +396,7 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
                     res_list.append(f" DEFAULT {row2[12]}")
                 if row[3] == 'NO':
                     res_list.append(" NOT NULL")
-            if index == len(res) - 1:
+            if index == len(res1) - 1:
                 res_list.append(f",\n  PRIMARY KEY({','.join(primary_key)})" if primary_key else '')
                 res_list.append(',\n' if mul_unique else '')
                 res_list.append(',\n'.join([f"  CONSTRAINT [{k}] UNIQUE({','.join(v)})" for k, v in mul_unique.items()]))
@@ -412,12 +411,12 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
         if comment:
             for com in comment[0]:
                 res_list.append(
-                    f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res[0][1]}', 'TABLE', '{tab}';""" if
+                    f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res1[0][1]}', 'TABLE', '{tab}';""" if
                     com[4] == 0 else \
-                        f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res[0][1]}', 'TABLE', '{tab}', 'COLUMN', '{com[0]}';""")
+                        f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res1[0][1]}', 'TABLE', '{tab}', 'COLUMN', '{com[0]}';""")
         for k, v in foreign_dict.items():
-            res_list.append(f'\nALTER TABLE [{res[0][1]}].[{tab}] WITH CHECK ADD CONSTRAINT [{v[1]}] FOREIGN KEY([{k}]) REFERENCES [{res[0][1]}].[{v[3]}] ([{v[4]}]);\n')
-            res_list.append(f'ALTER TABLE [{res[0][1]}].[{tab}] CHECK CONSTRAINT [{v[1]}];')
+            res_list.append(f'\nALTER TABLE [{res1[0][1]}].[{tab}] WITH CHECK ADD CONSTRAINT [{v[1]}] FOREIGN KEY([{k}]) REFERENCES [{res1[0][1]}].[{v[3]}] ([{v[4]}]);\n')
+            res_list.append(f'ALTER TABLE [{res1[0][1]}].[{tab}] CHECK CONSTRAINT [{v[1]}];')
         return ''.join(res_list)
 
     if conf['servertype'] == 'mysql':
@@ -632,7 +631,7 @@ def run_one_sql(sql: str, _fold=True, _columns=None):
     conn.close()
 
 
-def print_result_set(header, res, _columns, _fold, sql, res_index=0, conf=None):
+def print_result_set(header, res, _columns, _fold, sql, res_index=0, conf=None, tab=None):
     if not header:
         return
     if not res and out_format == 'table':
@@ -641,8 +640,8 @@ def print_result_set(header, res, _columns, _fold, sql, res_index=0, conf=None):
     header, res = before_print(header, res, _columns, _fold)
     if out_format == 'table':
         print_table(header, res, start_func=lambda table_width: print(INFO_COLOR.wrap(f'Result Sets [{res_index}]:')))
-    elif out_format == 'sql' and sql and conf:
-        print_insert_sql(header, res, get_tab_name_from_sql(sql), conf['servertype'])
+    elif out_format == 'sql' and (sql or tab) and conf:
+        print_insert_sql(header, res, tab if tab else get_tab_name_from_sql(sql), conf['servertype'])
     elif out_format == 'json':
         print_json(header, res)
     elif out_format == 'html':
@@ -1060,7 +1059,16 @@ def export():
                 print(split_line)
             if export_type in {'all', 'data'}:
                 print(print_template.format(f'Dumping data for {tab[0]}'), end='')
-                run_sql(f'SELECT * FROM {tab[0]}', conn, fold, conf=conf)
+                if conf['servertype'] == 'sqlserver' and out_format == 'sql':
+                    headers, results = exe_query(f'sp_columns [{tab[0]}];SELECT * FROM [{tab[0]}]', conn)
+                    set_identity_insert = len([ 1 for row in results[0] if row[5].endswith("identity")]) > 0
+                    if set_identity_insert:
+                        print(f'SET IDENTITY_INSERT [{tab[0]}] ON;')
+                    print_result_set(get_table_head_from_description(headers[1]), results[1], None, fold, None, conf=conf, tab=tab[0])
+                    if set_identity_insert:
+                        print(f'SET IDENTITY_INSERT [{tab[0]}] OFF;')
+                else:
+                    run_sql(f'SELECT * FROM `{tab[0]}`', conn, fold, conf=conf)
                 print(split_line)
         write_history('export', export_type, Stat.OK)
     except BaseException as be:
