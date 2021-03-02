@@ -686,9 +686,9 @@ def print_insert_sql(header, res, tab_name, server_type):
                 yield "NULL"
             elif isinstance(e, (int, float, HexObj)):
                 yield str(e)
-            elif isinstance(e, str):
+            elif server_type == 'mysql' and isinstance(e, str):
                 yield "'{}'".format(e.replace("'", "''").replace('\r', '\\r').replace('\n', '\\n')
-                                         .replace('\t', '\\t').replace('\0', '\\0').replace('\b', '\\b'))
+                                    .replace('\t', '\\t').replace('\0', '\\0').replace('\b', '\\b'))
             else:
                 yield f"'{e}'"
 
