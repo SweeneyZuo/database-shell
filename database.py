@@ -1170,7 +1170,7 @@ if __name__ == '__main__':
         elif opt == 'test':
             test()
         elif opt == 'version':
-            print('db 2.0.7')
+            print_config('.db.version')
         else:
             print_error_msg("Invalid operation!")
             print_usage()
