@@ -936,7 +936,7 @@ def shell():
         return
     val = input('db>').strip()
     while val not in {'quit', '!q', 'exit'}:
-        if val == '':
+        if not (val == '' or val.strip() == ''):
             run_sql(val, conn)
         val = input('db>')
     conn.close()
