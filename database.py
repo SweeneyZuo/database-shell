@@ -613,6 +613,7 @@ def print_mongo_result(mongo_result, conf):
         for (k, value) in mongo_result.items():
             header_list.append(k)
             result_list[0].append(value)
+        print_result_set(header_list, result_list, columns, fold, None, 0, conf, None)
     elif isinstance(mongo_result, (pymongo.cursor.Cursor, pymongo.command_cursor.CommandCursor)):
         t_set = set()
         result_dict_list = []
