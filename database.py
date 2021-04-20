@@ -1,5 +1,7 @@
 import warnings
 
+
+
 warnings.filterwarnings("ignore")
 import os
 import re
@@ -9,6 +11,7 @@ import html
 import fcntl
 import pymssql
 import pymysql
+import pymongo
 import hashlib
 import platform
 import traceback
@@ -26,6 +29,7 @@ widths = [
 class DatabaseType(Enum):
     SQLSERVER = 'sqlserver'
     MYSQL = 'mysql'
+    MONGO = 'mongo'
 
     def support(servertype):
         return servertype in set(map(lambda x: x.lower(), DatabaseType.__members__))
@@ -180,22 +184,28 @@ def get_connection():
     config = info['conf'][info['use']['env']].get(info['use']['conf'], {})
     server_type = config['servertype']
     try:
-        if server_type == 'mysql':
+        if server_type == DatabaseType.MYSQL.value:
             return pymysql.connect(host=config['host'], user=config['user'], password=config['password'],
                                    database=config['database'], port=config['port'],
                                    charset=config.get('charset', 'UTF8'),
                                    autocommit=config.get('autocommit', False)), config
-        elif server_type == 'sqlserver':
+        elif server_type == DatabaseType.SQLSERVER.value:
             return pymssql.connect(host=config['host'], user=config['user'], password=config['password'],
                                    database=config['database'], port=config['port'],
                                    charset=config.get('charset', 'UTF8'),
                                    autocommit=config.get('autocommit', False)), config
+        elif server_type == DatabaseType.MONGO.value:
+            return pymongo.MongoClient(host=config['host']), config
         else:
             print_error_msg(f"invalid serverType: {server_type}")
             return None, config
     except BaseException as e:
         print_error_msg(e)
         return None, config
+
+
+def close_connection(conn, conf):
+    conn.close()
 
 
 def get_tab_name_from_sql(src_sql):
@@ -318,20 +328,26 @@ def get_max_length_each_fields(rows, func):
 
 def get_list_obj_sql(obj, serverType, dbName):
     if obj in {'database', 'databases'}:
-        if serverType == 'mysql':
+        if serverType == DatabaseType.MYSQL.value:
             return f"SELECT SCHEMA_NAME `Database` FROM information_schema.SCHEMATA ORDER BY `Database`"
-        else:
+        elif serverType == DatabaseType.SQLSERVER.value:
             return "SELECT name [Database] FROM sys.sysdatabases ORDER BY name"
+        else:
+            return "print_result_set(['Database'], [[c] for c in sorted(conn.list_database_names())], columns, False, None, 0, conf)"
     elif obj in {'table', 'tables'}:
-        if serverType == 'mysql':
+        if serverType == DatabaseType.MYSQL.value:
             return f"SELECT TABLE_NAME `Table` FROM information_schema.tables WHERE TABLE_SCHEMA='{dbName}' ORDER BY TABLE_NAME"
-        else:
+        elif serverType == DatabaseType.SQLSERVER.value:
             return "SELECT name [Table] FROM sys.tables ORDER BY name"
-    elif obj in {'view', 'views'}:
-        if serverType == 'mysql':
-            return f"SELECT DISTINCT TABLE_NAME `View` FROM information_schema.views WHERE TABLE_SCHEMA='{dbName}' ORDER BY `View`"
         else:
+            return "print_result_set(['Collection'], [[c] for c in sorted(db.list_collection_names())], columns, False, None, 0, conf)"
+    elif obj in {'view', 'views'}:
+        if serverType == DatabaseType.MYSQL.value:
+            return f"SELECT DISTINCT TABLE_NAME `View` FROM information_schema.views WHERE TABLE_SCHEMA='{dbName}' ORDER BY `View`"
+        elif serverType == DatabaseType.SQLSERVER.value:
             return f"SELECT DISTINCT TABLE_NAME [View] FROM information_schema.views WHERE TABLE_CATALOG='{dbName}' ORDER BY TABLE_NAME"
+        else:
+            return None
     else:
         return None
 
@@ -340,13 +356,19 @@ def show(obj='table'):
     conn, conf = get_connection()
     if conn is None:
         return
+
     sql = get_list_obj_sql('table' if obj == '' else obj, conf['servertype'], conf['database'])
     if sql is None:
         print_error_msg(f'invalid obj "{obj}"!')
         write_history('show', obj, Stat.ERROR)
+    elif conf['servertype'] == DatabaseType.MONGO.value:
+        db = conn[conf['database']]
+        print_mongo_result(eval(sql), conf)
+        close_connection(conn, conf)
+        return
     else:
         run_sql(sql, conn, False)
-    conn.close()
+    close_connection(conn, conf)
 
 
 def get_create_table_ddl(conf, conn, tab):
@@ -480,6 +502,9 @@ def desc_table(tab_name, _fold, _columns):
 
 
 def print_table_schema(conf, conn, tab_name, _columns, _fold=False, attach_sql=False):
+    if conf['servertype'] == DatabaseType.MONGO.value:
+        print_error_msg("Mongo does not support desc option!")
+        return
     if out_format != 'sql':
         print_table_description(conf, conn, tab_name, _columns, _fold)
         if not attach_sql:
@@ -496,7 +521,7 @@ def get_table_head_from_description(description):
 def print_json(header, res):
     global human
     for row in res:
-        row = map(lambda e: e if isinstance(e, (str, int, float)) else str(e), row)
+        row = map(lambda e: str(e) if not isinstance(e, (str, int, float, list, dict)) else e, row)
         print(json.dumps(dict(zip(header, row)), indent=2 if human else None, ensure_ascii=False))
 
 
@@ -578,8 +603,43 @@ def print_markdown(header, res):
         print(table_row_str(row, max_length_each_fields, align_list, Color.NO_COLOR))
 
 
+def print_mongo_result(mongo_result, conf):
+    if mongo_result is None:
+        return
+    header_list = []
+    result_list = []
+    if isinstance(mongo_result, dict):
+        result_list.append([])
+        for (k, value) in mongo_result.items():
+            header_list.append(k)
+            result_list[0].append(value)
+    elif isinstance(mongo_result, (pymongo.cursor.Cursor, pymongo.command_cursor.CommandCursor)):
+        t_set = set()
+        result_dict_list = []
+        for d in mongo_result:
+            result_dict_list.append(d)
+            for (k, value) in d.items():
+                if k not in t_set:
+                    t_set.add(k)
+                    header_list.append(k)
+        for d in result_dict_list:
+            row = []
+            result_list.append(row)
+            for h in header_list:
+                row.append(d.get(h, None))
+        print_result_set(header_list, result_list, columns, fold, None, 0, conf, None)
+    elif isinstance(mongo_result, (int, float, str)):
+        print(mongo_result)
+    else:
+        print(type(mongo_result))
+        print(mongo_result)
+
 def run_sql(sql: str, conn, _fold=True, _columns=None, conf=None):
     sql, description, res, effect_rows = sql.strip(), None, None, None
+    if conf and conf['servertype'] == 'mongo':
+        db = conn[conf['database']]
+        print_mongo_result(eval(sql), conf)
+        return
     if sql.lower().startswith(('select', 'show')):
         description, res = exe_query(sql, conn)
     else:
@@ -628,7 +688,16 @@ def run_one_sql(sql: str, _fold=True, _columns=None):
     if conn is None:
         return
     run_sql(sql, conn, _fold, _columns, conf)
-    conn.close()
+    close_connection(conn, conf)
+
+
+def scan(tab, _fold=True, _columns=None):
+    conn, conf = get_connection()
+    if conn is None:
+        return
+    sql = f'db.{tab}.find()' if conf['servertype'] == DatabaseType.MONGO.value else f"SELECT * FROM {tab}"
+    run_sql(sql, conn, _fold, _columns, conf)
+    close_connection(conn, conf)
 
 
 def print_result_set(header, res, _columns, _fold, sql, res_index=0, conf=None, tab=None):
@@ -856,7 +925,7 @@ def set_info(kv):
                 print_error_msg("db is locked! can't set value.")
                 write_history('set', kv, Stat.ERROR)
                 return
-            kv_pair = kv.split('=')
+            kv_pair = kv.split('=', 1)
             info_obj[kv_pair[0].lower()] = kv_pair[1]
             write_info(parse_info_obj(read_info(), info_obj, Opt.UPDATE))
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -934,6 +1003,10 @@ def shell():
     conn, conf = get_connection()
     if conn is None:
         return
+    if conf['servertype'] == DatabaseType.MONGO.value:
+        print_error_msg("Mongo does not support shell option!")
+        conn.close()
+        return
     val = input('db>').strip()
     while val not in {'quit', '!q', 'exit'}:
         if not (val == '' or val.strip() == ''):
@@ -972,6 +1045,10 @@ def load(path):
         if os.path.exists(path):
             conn, config = get_connection()
             if conn is None:
+                return
+            if config['servertype'] == DatabaseType.MONGO.value:
+                print_error_msg("Mongo does not support load option!")
+                conn.close()
                 return
             cur = conn.cursor()
             with open(path, mode='r', encoding='UTF8') as sql_file:
@@ -1047,6 +1124,10 @@ def test():
 def export():
     conn, conf = get_connection()
     if conn is None:
+        return
+    if conf['servertype'] == DatabaseType.MONGO.value:
+        print_error_msg("Mongo does not support export option!")
+        conn.close()
         return
     try:
         tab_list = exe_query(get_list_obj_sql('table', conf['servertype'], conf['database']), conn)[1]
@@ -1152,7 +1233,7 @@ if __name__ == '__main__':
         elif opt == 'sql':
             run_one_sql(option_val, fold, columns)
         elif opt == 'scan':
-            run_one_sql(f"SELECT * FROM {option_val}", fold, columns)
+            scan(option_val, fold, columns)
         elif opt == 'set':
             set_info(option_val)
         elif opt == 'lock':
