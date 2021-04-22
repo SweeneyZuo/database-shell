@@ -204,10 +204,6 @@ def get_connection():
         return None, config
 
 
-def close_connection(conn, conf):
-    conn.close()
-
-
 def get_tab_name_from_sql(src_sql):
     """
      提取sql中的表名，sql语句不能有嵌套结构。
@@ -356,7 +352,6 @@ def show(obj='table'):
     conn, conf = get_connection()
     if conn is None:
         return
-
     sql = get_list_obj_sql('table' if obj == '' else obj, conf['servertype'], conf['database'])
     if sql is None:
         print_error_msg(f'invalid obj "{obj}"!')
@@ -364,11 +359,9 @@ def show(obj='table'):
     elif conf['servertype'] == DatabaseType.MONGO.value:
         db = conn[conf['database']]
         print_mongo_result(eval(sql), conf)
-        close_connection(conn, conf)
-        return
     else:
         run_sql(sql, conn, False)
-    close_connection(conn, conf)
+    conn.close()
 
 
 def get_create_table_ddl(conf, conn, tab):
@@ -519,10 +512,9 @@ def get_table_head_from_description(description):
 
 
 def print_json(header, res):
-    global human
     for row in res:
-        row = map(lambda e: str(e) if not isinstance(e, (str, int, float, list, dict)) else e, row)
-        print(json.dumps(dict(zip(header, row)), indent=2 if human else None, ensure_ascii=False))
+        row = map(lambda e: e if isinstance(e, (str, int, float, list, dict, bool)) or e is None else str(e), row)
+        print(json.dumps({k: v for (k, v) in zip(header, row) if v}, indent=2, ensure_ascii=False))
 
 
 def print_config(path):
@@ -576,8 +568,7 @@ def print_html4(header, res):
 
 
 def print_xml(header, res):
-    global human
-    end, intend = '\n' if human else "", " " * 4 if human else ""
+    end, intend = '\n', " " * 4
     for row in res:
         print(f"""<RECORD>{end}{end.join([f"{intend}<{h}/>" if e is None else f"{intend}<{h}>{e}</{h}>" for h, e in zip(header, row)])}{end}</RECORD>""")
 
@@ -606,40 +597,53 @@ def print_markdown(header, res):
 def print_mongo_result(mongo_result, conf):
     if mongo_result is None:
         return
-    header_list = []
-    result_list = []
+    header_list, result_list = [], []
     if isinstance(mongo_result, dict):
         result_list.append([])
         for (k, value) in mongo_result.items():
             header_list.append(k)
             result_list[0].append(value)
-        print_result_set(header_list, result_list, columns, fold, None, 0, conf, None)
-    elif isinstance(mongo_result, (pymongo.cursor.Cursor, pymongo.command_cursor.CommandCursor)):
-        t_set = set()
-        result_dict_list = []
+    elif isinstance(mongo_result, (pymongo.cursor.Cursor, pymongo.command_cursor.CommandCursor, list, tuple, set)):
+        t_set, result_dict_list = set(), []
         for d in mongo_result:
-            result_dict_list.append(d)
-            for (k, value) in d.items():
-                if k not in t_set:
-                    t_set.add(k)
-                    header_list.append(k)
+            if isinstance(d, dict):
+                result_dict_list.append(d)
+                for (k, value) in d.items():
+                    if k not in t_set:
+                        t_set.add(k)
+                        header_list.append(k)
+            else:
+                result_list.append([d])
+        if result_list:
+            header_list.append(f'result({type(result_list[0][0]).__name__})')
         for d in result_dict_list:
             row = []
             result_list.append(row)
             for h in header_list:
                 row.append(d.get(h, None))
-        print_result_set(header_list, result_list, columns, fold, None, 0, conf, None)
-    elif isinstance(mongo_result, (int, float, str)):
-        print(mongo_result)
     else:
-        print(type(mongo_result))
-        print(mongo_result)
+        header_list.append(f'result({type(mongo_result).__name__})')
+        result_list.append([mongo_result])
+    print_result_set(header_list, result_list, columns, fold, None, 0, conf, None)
+
+
+def exe_mongo(sql, conn, conf):
+    if conn is None:
+        return
+    db = conn[conf['database']]
+    try:
+        res = eval(sql)
+        print_mongo_result(res, conf)
+        write_history('sql', sql, Stat.OK)
+    except Exception as e:
+        write_history('sql', sql, Stat.ERROR)
+        print_error_msg(e)
+
 
 def run_sql(sql: str, conn, _fold=True, _columns=None, conf=None):
     sql, description, res, effect_rows = sql.strip(), None, None, None
     if conf and conf['servertype'] == 'mongo':
-        db = conn[conf['database']]
-        print_mongo_result(eval(sql), conf)
+        exe_mongo(sql, conn, conf)
         return
     if sql.lower().startswith(('select', 'show')):
         description, res = exe_query(sql, conn)
@@ -689,7 +693,7 @@ def run_one_sql(sql: str, _fold=True, _columns=None):
     if conn is None:
         return
     run_sql(sql, conn, _fold, _columns, conf)
-    close_connection(conn, conf)
+    conn.close()
 
 
 def scan(tab, _fold=True, _columns=None):
@@ -698,7 +702,31 @@ def scan(tab, _fold=True, _columns=None):
         return
     sql = f'db.{tab}.find()' if conf['servertype'] == DatabaseType.MONGO.value else f"SELECT * FROM {tab}"
     run_sql(sql, conn, _fold, _columns, conf)
-    close_connection(conn, conf)
+    conn.close()
+
+
+def peek(tab, _fold=True, _columns=None):
+    conn, conf = get_connection()
+    if conn is None:
+        return
+    if conf['servertype'] == DatabaseType.MONGO.value:
+        run_sql(f'db.{tab}.find_one()', conn, _fold, _columns, conf)
+    elif conf['servertype'] == DatabaseType.MYSQL.value:
+        run_sql(f'SELECT * FROM {tab} LIMIT 1', conn, _fold, _columns, conf)
+    elif conf['servertype'] == DatabaseType.SQLSERVER.value:
+        run_sql(f'SELECT TOP 1 * FROM {tab}', conn, _fold, _columns, conf)
+    conn.close()
+
+
+def count(tab, _fold=True, _columns=None):
+    conn, conf = get_connection()
+    if conn is None:
+        return
+    if conf['servertype'] == DatabaseType.MONGO.value:
+        run_sql(f'db.{tab}.count()', conn, _fold, _columns, conf)
+    else:
+        run_sql(f'SELECT COUNT(1) row_count FROM {tab}', conn, _fold, _columns, conf)
+    conn.close()
 
 
 def print_result_set(header, res, _columns, _fold, sql, res_index=0, conf=None, tab=None):
@@ -1177,7 +1205,7 @@ def parse_args(args):
             limit_column_re = re.match("^(col)\[((\s*\d+\s*-\s*\d+\s*)|(\s*(\d+)\s*(,\s*(\d+)\s*)*))(\])$", p)
             if option in {'info', 'shell', 'help', 'test', 'version'}:
                 _error_param_exit(p)
-            elif index == 2 and option in {'sql', 'scan', 'desc', 'load', 'set', 'lock', 'unlock'}:
+            elif index == 2 and option in {'sql', 'scan', 'peek', 'count', 'desc', 'load', 'set', 'lock', 'unlock'}:
                 # 第3个参数可以自定义输入的操作
                 continue
             elif option == 'show':
@@ -1197,7 +1225,7 @@ def parse_args(args):
                     columns = [i for i in range(int(t[0]), int(t[1]) + 1)] if int(t[0]) <= int(t[1]) \
                         else [i for i in range(int(t[0]), int(t[1]) - 1, -1)]
                 set_columns = True
-            elif not set_format and option in {'export', 'sql', 'scan', 'desc', 'hist', 'history'} and \
+            elif not set_format and option in {'export', 'sql', 'scan', 'peek', 'count', 'desc', 'hist', 'history'} and \
                     p in PRINT_FORMAT_SET:
                 if option != 'table':
                     disable_color()
@@ -1235,6 +1263,10 @@ if __name__ == '__main__':
             run_one_sql(option_val, fold, columns)
         elif opt == 'scan':
             scan(option_val, fold, columns)
+        elif opt == 'peek':
+            peek(option_val, fold, columns)
+        elif opt == 'count':
+            count(option_val, fold, columns)
         elif opt == 'set':
             set_info(option_val)
         elif opt == 'lock':
