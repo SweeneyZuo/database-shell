@@ -725,7 +725,7 @@ def count(tab, _fold=True, _columns=None):
     if conf['servertype'] == DatabaseType.MONGO.value:
         run_sql(f'db.{tab}.count()', conn, _fold, _columns, conf)
     else:
-        run_sql(f'SELECT COUNT(1) row_count FROM {tab}', conn, _fold, _columns, conf)
+        run_sql(f'SELECT COUNT(*) row_count FROM {tab}', conn, _fold, _columns, conf)
     conn.close()
 
 
