@@ -385,7 +385,7 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
             return
         header2, res1 = before_print(get_table_head_from_description(description[1]), res[1], None, False)
         header, res2 = before_print(get_table_head_from_description(description[0]), res[0], None, False)
-        index_dict, foreign_dict = get_sqlserver_index_information_dict(conn, conf['database'], tab)
+        index_dict, foreign_dict = get_sqlserver_index_information_dict(conn, tab)
         primary_key, mul_unique = [], {}
         for k, v in index_dict.items():
             if v[2] == 'PK':
@@ -434,16 +434,16 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
             res_list.append(f'ALTER TABLE [{res1[0][1]}].[{tab}] CHECK CONSTRAINT [{v[1]}];')
         return ''.join(res_list)
 
-    if conf['servertype'] == 'mysql':
+    if conf['servertype'] == DatabaseType.MYSQL.value:
        return get_create_table_mysql_ddl()
-    elif conf['servertype'] == 'sqlserver':
+    elif conf['servertype'] == DatabaseType.SQLSERVER.value:
        return get_create_table_sqlserver_ddl()
 
 
-def get_sqlserver_index_information_dict(conn, database, tab_name, dbo='dbo'):
+def get_sqlserver_index_information_dict(conn, tab_name, dbo='dbo'):
     index_formation = exe_query(
         f"""SELECT c.name colName,object_name(constraint_object_id) constName,'FK' type,object_name(referenced_object_id) refTabName,c1.name refColName FROM sys.foreign_key_columns f JOIN sys.tables t ON t.object_id=f.parent_object_id JOIN sys.columns c ON c.object_id=f.parent_object_id AND c.column_id=f.parent_column_id JOIN sys.columns c1 ON c1.object_id=f.referenced_object_id AND c1.column_id=f.referenced_column_id JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE t.name='{tab_name}' AND s.name='{dbo}' \
-UNION SELECT COLUMN_NAME colName,CONSTRAINT_NAME constName,k.type,NULL refTabName,NULL refColName FROM sys.key_constraints k LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE c ON k.name=c.CONSTRAINT_NAME WHERE c.TABLE_SCHEMA='{dbo}' AND c.TABLE_NAME='{tab_name}'""",
+UNION ALL SELECT COLUMN_NAME colName,CONSTRAINT_NAME constName,k.type,NULL refTabName,NULL refColName FROM sys.key_constraints k LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE c ON k.name=c.CONSTRAINT_NAME WHERE c.TABLE_SCHEMA='{dbo}' AND c.TABLE_NAME='{tab_name}'""",
         conn)[1]
     # {colName:(colName,constName,indexType,refTabName,refColName)}
     return {fmt[0]: fmt for fmt in index_formation[0]} if index_formation else dict(), \
@@ -452,15 +452,15 @@ UNION SELECT COLUMN_NAME colName,CONSTRAINT_NAME constName,k.type,NULL refTabNam
 
 def print_table_description(conf, conn, tab, _columns, _fold):
     sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT FROM information_schema.columns WHERE table_schema='{conf['database']}' AND table_name='{tab}'"""
-    if conf['servertype'] == 'sqlserver':
+    if conf['servertype'] == DatabaseType.SQLSERVER.value:
         sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'IDENTITY' ELSE '' END Extra,ISNULL(CONVERT(varchar,ep.value), '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{conf['database']}' AND obj.name='{tab}' ORDER BY col.colorder"""
     res = exe_query(sql, conn)[1]
     if not res or not res[0]:
         print_error_msg(f"{tab} not found!")
         return
     res = list(map(lambda row: list(row), res[0]))
-    if conf['servertype'] == 'sqlserver':
-        index_dict,foreign_dict = get_sqlserver_index_information_dict(conn, conf['database'], tab)
+    if conf['servertype'] == DatabaseType.SQLSERVER.value:
+        index_dict,foreign_dict = get_sqlserver_index_information_dict(conn, tab)
         for row in res:
             data_type, cml, np, ns = row[1], row.pop(2), row.pop(2), row.pop(2)
             if cml and row[1] not in {'text', 'ntext', 'xml'}:
@@ -781,7 +781,7 @@ def print_insert_sql(header, res, tab_name, server_type):
                 yield "NULL"
             elif isinstance(e, (int, float, HexObj)):
                 yield str(e)
-            elif server_type == 'mysql' and isinstance(e, str):
+            elif server_type == DatabaseType.MYSQL.value and isinstance(e, str):
                 yield "'{}'".format(e.replace("'", "''").replace('\r', '\\r').replace('\n', '\\n')
                                     .replace('\t', '\\t').replace('\0', '\\0').replace('\b', '\\b'))
             else:
@@ -791,8 +791,8 @@ def print_insert_sql(header, res, tab_name, server_type):
         print_error_msg("Can't get table name!")
         return
     if res:
-        tab_name = f'`{tab_name}`' if server_type == 'mysql' else f'[{tab_name}]'
-        header = map(lambda x: f'`{str(x)}`' if server_type == 'mysql' else f'[{str(x)}]', header)
+        tab_name = f'`{tab_name}`' if server_type == DatabaseType.MYSQL.value else f'[{tab_name}]'
+        header = map(lambda x: f'`{str(x)}`' if server_type == DatabaseType.MYSQL.value else f'[{str(x)}]', header)
         insert_prefix = f"INSERT INTO {tab_name} ({','.join(header)}) VALUES"
         for row in res:
             print(f"""{insert_prefix} ({','.join(_case_for_sql(row))});""")
@@ -1163,7 +1163,7 @@ def export():
                 print(split_line)
             if export_type in {'all', 'data'}:
                 print(print_template.format(f'Dumping data for {tab[0]}'), end='')
-                if conf['servertype'] == 'sqlserver' and out_format == 'sql':
+                if conf['servertype'] == DatabaseType.SQLSERVER.value and out_format == 'sql':
                     headers, results = exe_query(f'sp_columns [{tab[0]}];SELECT * FROM [{tab[0]}]', conn)
                     set_identity_insert = len([ 1 for row in results[0] if row[5].endswith("identity")]) > 0
                     if set_identity_insert:
