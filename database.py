@@ -273,9 +273,9 @@ def exe_no_query(sql, conn):
 
 def calc_char_width(char):
     char_ord = ord(char)
-    global widths
     if char_ord == 0xe or char_ord == 0xf:
         return 0
+    global widths
     for num, wid in widths:
         if char_ord <= num:
             return wid
@@ -617,10 +617,7 @@ def print_mongo_result(mongo_result, conf):
         if result_list:
             header_list.append(f'result({type(result_list[0][0]).__name__})')
         for d in result_dict_list:
-            row = []
-            result_list.append(row)
-            for h in header_list:
-                row.append(d.get(h, None))
+            result_list.append([d.get(h, None) for h in header_list])
     else:
         header_list.append(f'result({type(mongo_result).__name__})')
         result_list.append([mongo_result])
@@ -827,7 +824,7 @@ def print_table(header, res, split_row_char='-',
 
     row_total_num, col_total_num = len(res), len(header)
     res.insert(0, header)
-    default_align = [Align.ALIGN_LEFT for i in range(col_total_num)]
+    default_align = col_total_num * [Align.ALIGN_LEFT]
     res, align_list = _deal_res(res, default_align.copy())
     max_length_each_fields = get_max_length_each_fields(res, str_width)
     header = res.pop(0)
@@ -1139,10 +1136,7 @@ def get_print_template_with_format():
 
 
 def get_print_split_line_with_format():
-    if out_format == 'markdown':
-        return '\n---\n'
-    else:
-        return '\n'
+    return '\n---\n' if out_format == 'markdown' else '\n'
 
 
 def test():
