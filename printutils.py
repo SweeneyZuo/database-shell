@@ -39,7 +39,7 @@ class Align(Enum):
     ALIGN_CENTER = 3
 
 
-class HexObj(object):
+class HexObj:
     def __init__(self, hex_str):
         self.hex_str = f'0x{hex_str}'
 
@@ -47,7 +47,7 @@ class HexObj(object):
         return self.hex_str
 
 
-class PrintConf():
+class PrintConf:
     __slots__ = (
         '__info_color',
         '__show_bottom_threshold',
@@ -139,7 +139,7 @@ widths = [
 ]
 
 
-class MsgPrinter():
+class MsgPrinter:
     def __init__(self, info_color=Color.GREEN, warn_color=Color.KHAKI, error_color=Color.RED):
         self.__info_color = info_color
         self.__warn_color = warn_color
@@ -178,10 +178,10 @@ def _calc_char_width(char):
 def _str_width(any_str, pc: PrintConf):
     if any_str == pc.null_str_with_color:
         return pc.null_str_with_color_len
-    l = -pc.fold_color_len if any_str.endswith(pc.fold_replace_str_with_color) else 0
+    ln = -pc.fold_color_len if any_str.endswith(pc.fold_replace_str_with_color) else 0
     for char in any_str:
-        l += _calc_char_width(char)
-    return l
+        ln += _calc_char_width(char)
+    return ln
 
 
 def _get_max_length_each_fields(rows, pc: PrintConf):
@@ -194,7 +194,7 @@ def _get_max_length_each_fields(rows, pc: PrintConf):
 
 
 def _table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_char='|'):
-    def _table_row_str():
+    def _table_row_str_lazy():
         end_str = f' {split_char} '
         yield f'{split_char} '
         for e, width, align_type in zip(row, head_length, align_list):
@@ -212,7 +212,7 @@ def _table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_cha
                 yield ' ' * (space_num - half_space_num)
             yield end_str
 
-    return ''.join(_table_row_str())
+    return ''.join(_table_row_str_lazy())
 
 
 def _default_after_print_row(row_num, row_total_num, max_row_length, table_width, pc: PrintConf):
@@ -225,18 +225,18 @@ def print_table(header, res, pc: PrintConf, mp: MsgPrinter,
                 after_print_row_func=_default_after_print_row,
                 end_func=lambda table_width, total, mp: mp.print_info_msg(f'Total Records: {total}')):
     def _deal_res(_res, _align_list):
-        for row in _res:
-            for cdx, e in enumerate(row):
+        for _row in _res:
+            for cdx, e in enumerate(_row):
                 if isinstance(e, str):
-                    row[cdx] = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
+                    _row[cdx] = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
                         .replace('\0', '\\0').replace('\b', '\\b')
                 elif isinstance(e, (int, float)):
                     # 数字采用右对齐
-                    _align_list[cdx], row[cdx] = Align.ALIGN_RIGHT, str(e)
+                    _align_list[cdx], _row[cdx] = Align.ALIGN_RIGHT, str(e)
                 elif e is None:
-                    row[cdx] = pc.null_str_with_color
+                    _row[cdx] = pc.null_str_with_color
                 else:
-                    row[cdx] = str(e)
+                    _row[cdx] = str(e)
         return _res, _align_list
 
     row_total_num, col_total_num = len(res), len(header)
@@ -284,8 +284,8 @@ def print_markdown(header, res, pc: PrintConf):
 
 
 def print_insert_sql(header, res, tab_name, server_type: DatabaseType, mp):
-    def _case_for_sql(row):
-        for cdx, e in enumerate(row):
+    def _case_for_sql(_row):
+        for cdx, e in enumerate(_row):
             if e is None:
                 yield "NULL"
             elif isinstance(e, (int, float, HexObj)):
@@ -357,11 +357,12 @@ def print_html4(header, res):
     print("</tbody>\n</table>")
 
 
-def print_xml(header, res):
-    end, intend = '\n', " " * 4
+def print_xml(hd, res):
+    end, d = '\n', " " * 4
+    record_template = f'<RECORD>{end}{{}}{end}</RECORD>'
     for row in res:
-        print(
-            f"""<RECORD>{end}{end.join([f"{intend}<{h}/>" if e is None else f"{intend}<{h}>{e}</{h}>" for h, e in zip(header, row)])}{end}</RECORD>""")
+        print(record_template.format(
+            f"""{end.join([f"{d}<{h}/>" if e is None else f"{d}<{h}>{e}</{h}>" for h, e in zip(hd, row)])}"""))
 
 
 def print_csv(header, res, split_char=','):

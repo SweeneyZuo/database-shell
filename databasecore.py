@@ -27,7 +27,7 @@ class DatabaseType(Enum):
             return value
 
 
-class Query():
+class Query:
     def __init__(self,
                  server_type,
                  database,
@@ -92,7 +92,7 @@ class Query():
 class DbException(Exception): pass
 
 
-class DatabaseConf(object):
+class DatabaseConf:
     __slots__ = ('__server_type',
                  '__host',
                  '__port',
@@ -180,7 +180,7 @@ class DatabaseConf(object):
         return self.__connection
 
 
-class Server():
+class Server:
     __slots__ = ('__db_conf', '_connection')
 
     def __init__(self, db_conf):
@@ -312,7 +312,7 @@ class MongoDBServer(Server):
         return self._connection
 
 
-class ServerFactory():
+class ServerFactory:
     @staticmethod
     def get_server(dc: DatabaseConf):
         if dc.server_type is DatabaseType.MYSQL:

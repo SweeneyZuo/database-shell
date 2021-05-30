@@ -8,7 +8,6 @@ import json
 import fcntl
 import hashlib
 import platform
-import traceback
 from enum import Enum
 import printutils as pu
 from datetime import datetime, timedelta
@@ -72,11 +71,11 @@ def get_proc_home():
 def write_history(option, content, stat):
     proc_home = get_proc_home()
     file = os.path.join(proc_home, f'hist/.{datetime.now().date()}_db.history')
-    with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as file_lock:
+        fcntl.flock(file_lock.fileno(), fcntl.LOCK_EX)
         with open(file, mode='a+', encoding='UTF-8') as history_file:
             history_file.write(f'{datetime.now().strftime("%H:%M:%S")}\0\0{option}\0\0{content}\0\0{stat.value}\n')
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        fcntl.flock(file_lock.fileno(), fcntl.LOCK_UN)
 
 
 def read_history():
@@ -84,18 +83,18 @@ def read_history():
     file = os.path.join(proc_home, f'hist/.{datetime.now().date()}_db.history')
     history_list = []
     if os.path.exists(file):
-        with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as file_lock:
+            fcntl.flock(file_lock.fileno(), fcntl.LOCK_EX)
             with open(file, mode='r', encoding='UTF-8') as history_file:
                 history_list = history_file.readlines()
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(file_lock.fileno(), fcntl.LOCK_UN)
     return history_list
 
 
-def show_history(fold):
+def show_history(_fold):
     try:
         res = [list(map(lambda cell: cell.replace("\n", " "), line.split('\0\0'))) for line in read_history()]
-        print_result_set(['time', 'option', 'value', 'stat'], res, Query(None, None, None, fold))
+        print_result_set(['time', 'option', 'value', 'stat'], res, Query(None, None, None, _fold))
         write_history('history', out_format, Stat.OK)
     except BaseException as e:
         write_history('history', out_format, Stat.ERROR)
@@ -222,8 +221,8 @@ def get_create_table_ddl(conn, query: Query):
         return res[0][0][1] if len(res[0][0]) == 2 else res[0][0][0]
 
     def get_create_table_sql_server_ddl():
-        def is_number(data_type):
-            return data_type in {'bit', 'int', 'tinyint', 'smallint', 'bigint', 'float',
+        def is_number(_data_type):
+            return _data_type in {'bit', 'int', 'tinyint', 'smallint', 'bigint', 'float',
                                  'decimal', 'numeric', 'real', 'money', 'smallmoney'}
 
         res_list = []
@@ -281,7 +280,7 @@ JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t
             for com in comment[0]:
                 res_list.append(
                     f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res1[0][1]}', 'TABLE', '{query.table_name}';""" if
-                    com[4] == 0 else \
+                    com[4] == 0 else
                         f"""\nEXEC sp_addextendedproperty '{com[2]}' , {com[1] if is_number(com[3]) else "'{}'".format(com[1])}, 'SCHEMA', '{res1[0][1]}', 'TABLE', '{query.table_name}', 'COLUMN', '{com[0]}';""")
         for k, v in foreign_dict.items():
             res_list.append(
@@ -313,7 +312,7 @@ def print_table_description(conn, qy: Query):
     if not res or not res[0]:
         DEFAULT_MP.print_error_msg(f"{qy.table_name} not found!")
         return
-    res = list(map(lambda row: list(row), res[0]))
+    res = list(map(lambda r: list(r), res[0]))
     if qy.server_type is DatabaseType.SQL_SERVER:
         index_dict, foreign_dict = get_sqlserver_index_information_dict(conn, qy.table_name)
         for row in res:
@@ -540,10 +539,10 @@ def deal_human(rows):
     for rdx, row in enumerate(rows):
         if rdx == 0:
             continue
-        for cdx, e in enumerate(row):
-            if cdx in human_time_cols and isinstance(e, int):
+        for cdx, ele in enumerate(row):
+            if cdx in human_time_cols and isinstance(ele, int):
                 # 注意：时间戳被当成毫秒级时间戳处理，秒级时间戳格式化完是错误的时间
-                rows[rdx][cdx] = (datetime(1970, 1, 1) + timedelta(milliseconds=e)).strftime("%Y-%m-%d %H:%M:%S")
+                rows[rdx][cdx] = (datetime(1970, 1, 1) + timedelta(milliseconds=ele)).strftime("%Y-%m-%d %H:%M:%S")
     return rows
 
 
@@ -665,9 +664,9 @@ def lock_value():
 
 
 def unlock(key):
-    with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w') as t_lock_file:
+    with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w') as file_lock:
         try:
-            fcntl.flock(t_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(file_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             DEFAULT_MP.print_error_msg("unlock fail, please retry!")
             write_history('unlock', '*' * 6, Stat.ERROR)
@@ -687,13 +686,13 @@ def unlock(key):
         else:
             DEFAULT_MP.print_error_msg('Incorrect key!')
             write_history('unlock', key, Stat.ERROR)
-        fcntl.flock(t_lock_file.fileno(), fcntl.LOCK_UN)
+        fcntl.flock(file_lock.fileno(), fcntl.LOCK_UN)
 
 
 def lock(key: str):
-    with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w+') as lock:
+    with open(os.path.join(get_proc_home(), 'config/.db.lock'), 'w+') as file_lock:
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(file_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             DEFAULT_MP.print_error_msg("lock fail, please retry!")
             write_history('lock', '*' * 6, Stat.ERROR)
@@ -708,7 +707,7 @@ def lock(key: str):
         lock_file = os.path.join(get_proc_home(), 'config/.db.lock.value')
         with open(lock_file, mode='w+') as f:
             f.write(m.hexdigest())
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        fcntl.flock(file_lock.fileno(), fcntl.LOCK_UN)
         DEFAULT_MP.print_info_msg('db locked!')
         write_history('lock', '*' * 6, Stat.OK)
 
@@ -974,6 +973,7 @@ if __name__ == '__main__':
         else:
             DEFAULT_MP.print_error_msg("Invalid operation!")
             print_usage()
-    except Exception as e:
-        DEFAULT_MP.print_error_msg(e)
-        traceback.print_exc(chain=e)
+    except Exception as ex:
+        DEFAULT_MP.print_error_msg(ex)
+        import traceback
+        traceback.print_exc(chain=ex)
