@@ -140,10 +140,11 @@ widths = [
 
 
 class MsgPrinter:
-    def __init__(self, info_color=Color.GREEN, warn_color=Color.KHAKI, error_color=Color.RED):
+    def __init__(self, info_color=Color.GREEN, warn_color=Color.KHAKI, error_color=Color.RED, normal_out=sys.stdout):
         self.__info_color = info_color
         self.__warn_color = warn_color
         self.__error_color = error_color
+        self.__normal_out = normal_out
 
     def print_error_msg(self, msg, end='\n'):
         sys.stderr.write(f'{self.__error_color.wrap(msg)}{end}')
@@ -153,6 +154,9 @@ class MsgPrinter:
 
     def print_warn_msg(self, msg, end='\n'):
         sys.stdout.write(f'{self.__warn_color.wrap(msg)}{end}')
+
+    def output(self, data, end='\n'):
+        self.__normal_out.write(f'{data}{end}')
 
     def disable_info_color(self):
         self.__info_color = Color.NO_COLOR
@@ -215,9 +219,9 @@ def _table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_cha
     return ''.join(_table_row_str_lazy())
 
 
-def _default_after_print_row(row_num, row_total_num, max_row_length, table_width, pc: PrintConf):
+def _default_after_print_row(row_num, row_total_num, max_row_length, table_width, pc: PrintConf, mp: MsgPrinter):
     if max_row_length > pc.show_bottom_threshold and row_num < row_total_num - 1:
-        print(pc.split_row_char * table_width)
+        mp.output(pc.split_row_char * table_width)
 
 
 def print_table(header, res, pc: PrintConf, mp: MsgPrinter,
@@ -252,18 +256,18 @@ def print_table(header, res, pc: PrintConf, mp: MsgPrinter,
     space_list_down = [(pc.split_row_char * i, i) for i in max_length_each_fields]
     start_func(table_width, mp)
     # 打印表格的上顶线
-    print(_table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
+    mp.output(_table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
     # 打印HEADER部分，和数据的对其方式保持一致
-    print(_table_row_str(header, max_length_each_fields, align_list, pc.table_head_color))
+    mp.output(_table_row_str(header, max_length_each_fields, align_list, pc.table_head_color))
     # 打印HEADER和DATA之间的分割线
-    print(_table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
+    mp.output(_table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
     for row_num, row in enumerate(res):
         # 打印DATA部分
-        print(_table_row_str(row, max_length_each_fields, align_list, pc.data_color))
-        after_print_row_func(row_num, row_total_num, max_row_length, table_width, pc)
+        mp.output(_table_row_str(row, max_length_each_fields, align_list, pc.data_color))
+        after_print_row_func(row_num, row_total_num, max_row_length, table_width, pc, mp)
     if res:
         # 有数据时，打印表格的下底线
-        print(_table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
+        mp.output(_table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
     end_func(table_width, row_total_num, mp)
 
 
@@ -274,13 +278,13 @@ def _deal_html_elem(e):
         .replace('\n', '<br>').replace('\t', '&ensp;' * 4) if isinstance(e, str) else str(e)
 
 
-def print_markdown(header, res, pc: PrintConf):
+def print_markdown(header, res, pc, mp):
     res.insert(0, header)
     res = [[_deal_html_elem(e) for e in row] for row in res]
     max_length_each_fields, align_list = _get_max_length_each_fields(res, pc), len(header) * [Align.ALIGN_LEFT]
     res.insert(1, map(lambda l: ('-' * l, l), max_length_each_fields))
     for row in res:
-        print(_table_row_str(row, max_length_each_fields, align_list, Color.NO_COLOR))
+        mp.output(_table_row_str(row, max_length_each_fields, align_list, Color.NO_COLOR))
 
 
 def print_insert_sql(header, res, tab_name, server_type: DatabaseType, mp):
@@ -303,69 +307,69 @@ def print_insert_sql(header, res, tab_name, server_type: DatabaseType, mp):
         header = map(lambda x: server_type.escape_value(str(x)), header)
         insert_prefix = f"INSERT INTO {server_type.escape_value(tab_name)} ({','.join(header)}) VALUES"
         for row in res:
-            print(f"""{insert_prefix} ({','.join(_case_for_sql(row))});""")
+            mp.output(f"""{insert_prefix} ({','.join(_case_for_sql(row))});""")
 
 
-def print_json(header, res):
+def print_json(header, res, mp):
     for row in res:
         row = map(lambda e: e if isinstance(e, (str, int, float, list, dict, bool)) or e is None else str(e), row)
-        print(json.dumps({k: v for (k, v) in zip(header, row) if v}, indent=2, ensure_ascii=False))
+        mp.output(json.dumps({k: v for (k, v) in zip(header, row) if v}, indent=2, ensure_ascii=False))
 
 
-def print_config(path):
+def print_config(path, mp):
     with open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'config/', path)) as html_head:
-        print(''.join(html_head.readlines()), end='')
+        mp.output(''.join(html_head.readlines()), end='')
 
 
-def _print_header_with_html(header):
-    print(f"""<tr>{''.join(map(lambda head: f"<th>{'' if head is None else head}</th>", header))}</tr>""")
+def _print_header_with_html(header, mp):
+    mp.output(f"""<tr>{''.join(map(lambda head: f"<th>{'' if head is None else head}</th>", header))}</tr>""")
 
 
-def print_html3(header, res):
-    print_config('html/html1.head')
-    _print_header_with_html(header)
+def print_html3(header, res, mp):
+    print_config('html/html1.head', mp)
+    _print_header_with_html(header, mp)
     for row in res:
-        print(f"""<tr>{''.join(map(lambda e: f"<td>{_deal_html_elem(e)}</td>", row))}</tr>""")
-    print("</table>\n</body>\n</html>")
+        mp.output(f"""<tr>{''.join(map(lambda e: f"<td>{_deal_html_elem(e)}</td>", row))}</tr>""")
+    mp.output("</table>\n</body>\n</html>")
 
 
-def print_html2(header, res):
-    print_config('html/html2.head')
-    _print_header_with_html(header)
+def print_html2(header, res, mp):
+    print_config('html/html2.head', mp)
+    _print_header_with_html(header, mp)
     for rdx, row in enumerate(res):
-        print(
+        mp.output(
             f"""<tr{'' if rdx % 2 == 0 else ' class="alt"'}>{''.join(map(lambda o: f"<td>{_deal_html_elem(o)}</td>", row))}</tr>""")
-    print("</table>\n</body>\n</html>")
+    mp.output("</table>\n</body>\n</html>")
 
 
-def print_html(header, res):
-    print_config('html/html3.head')
-    _print_header_with_html(header)
+def print_html(header, res, mp):
+    print_config('html/html3.head', mp)
+    _print_header_with_html(header, mp)
     s = '<tr onmouseover="this.style.backgroundColor=\'#ffff66\';"onmouseout="this.style.backgroundColor=\'#d4e3e5\';">'
     for row in res:
-        print(f"""{s}{''.join(map(lambda e: f"<td>{_deal_html_elem(e)}</td>", row))}</tr>""")
-    print("</table>")
+        mp.output(f"""{s}{''.join(map(lambda e: f"<td>{_deal_html_elem(e)}</td>", row))}</tr>""")
+    mp.output("</table>")
 
 
-def print_html4(header, res):
-    print_config('html/html4.head')
-    print(
+def print_html4(header, res, mp):
+    print_config('html/html4.head', mp)
+    mp.output(
         f"""<thead><tr>{''.join(map(lambda head: f"<th>{'' if head is None else head}</th>", header))}</tr></thead>""")
-    print('<tbody>')
+    mp.output('<tbody>')
     for row in res:
-        print(f"""<tr>{''.join(map(lambda e: f'<td>{_deal_html_elem(e)}</td>', row))}</tr>""")
-    print("</tbody>\n</table>")
+        mp.output(f"""<tr>{''.join(map(lambda e: f'<td>{_deal_html_elem(e)}</td>', row))}</tr>""")
+    mp.output("</tbody>\n</table>")
 
 
-def print_xml(hd, res):
+def print_xml(hd, res, mp):
     end, d = '\n', " " * 4
     record_template = f'<RECORD>{end}{{}}{end}</RECORD>'
     for row in res:
-        print(record_template.format(
+        mp.output(record_template.format(
             f"""{end.join([f"{d}<{h}/>" if e is None else f"{d}<{h}>{e}</{h}>" for h, e in zip(hd, row)])}"""))
 
 
-def print_csv(header, res, split_char=','):
+def print_csv(header, res, mp, split_char=','):
     res.insert(0, header)
     for row in res:
         new_row = []
@@ -374,4 +378,4 @@ def print_csv(header, res, split_char=','):
             if split_char in print_data or '\n' in print_data or '\r' in print_data:
                 print_data = '"{}"'.format(print_data.replace('"', '""'))
             new_row.append(print_data)
-        print(split_char.join(new_row))
+        mp.output(split_char.join(new_row))
