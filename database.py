@@ -6,18 +6,16 @@ import re
 import sys
 import json
 import fcntl
-import pymssql
-import pymysql
-import pymongo
 import hashlib
 import platform
 import traceback
 from enum import Enum
 import printutils as pu
 from datetime import datetime, timedelta
-from databasecore import EnvType, DatabaseType, DatabaseConf, Query
+from databasecore import DatabaseType, DatabaseConf, Query, ServerFactory
 
 DEFAULT_PC = pu.PrintConf()
+DEFAULT_MP = pu.MsgPrinter()
 
 
 class Stat(Enum):
@@ -26,23 +24,20 @@ class Stat(Enum):
 
 
 DEFAULT_CONF = 'default'
-ENV_TYPE = EnvType.DEV
 CONF_KEY = DEFAULT_CONF
-WARN_COLOR = pu.Color.KHAKI
-INFO_COLOR = pu.Color.GREEN
 PRINT_FORMAT_SET = {'table', 'text', 'json', 'sql', 'html', 'html2', 'html3', 'html4', 'markdown', 'xml', 'csv'}
 FOLD_LIMIT = 50
-config = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit']
+CONFIG = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit']
 
 
 def check_conf(db_conf: dict):
     if db_conf['use']['conf'] == DEFAULT_CONF:
-        pu.print_error_msg('please set conf!')
+        DEFAULT_MP.print_error_msg('please set conf!')
         return False
     conf_keys = db_conf['conf'][db_conf['use']['env']][db_conf['use']['conf']].keys()
-    for conf in config[2:8]:
+    for conf in CONFIG[2:8]:
         if conf not in conf_keys:
-            pu.print_error_msg(f'please set {conf}!')
+            DEFAULT_MP.print_error_msg(f'please set {conf}!')
             return False
     return True
 
@@ -52,7 +47,7 @@ def show_database_info(info):
     conf_name = info['use']['conf'] if info else ''
     conf = info['conf'][env].get(conf_name, {}) if info else {}
 
-    def print_start_info(table_width, pc):
+    def print_start_info(table_width, mp):
         start_info_msg = '[CONNECTION INFO]'
         f = (table_width - len(start_info_msg)) >> 1
         b = table_width - len(start_info_msg) - f
@@ -67,7 +62,7 @@ def show_database_info(info):
                      conf.get('password', ''),
                      conf.get('database', ''),
                      is_locked()]],
-                   DEFAULT_PC, start_func=print_start_info, end_func=lambda a, b, pc: print('#' * a))
+                   DEFAULT_PC, DEFAULT_MP, start_func=print_start_info, end_func=lambda a, b, mp: print('#' * a))
 
 
 def get_proc_home():
@@ -104,10 +99,10 @@ def show_history(fold):
         write_history('history', out_format, Stat.OK)
     except BaseException as e:
         write_history('history', out_format, Stat.ERROR)
-        pu.print_error_msg(e)
+        DEFAULT_MP.print_error_msg(e)
 
 
-def get_connection():
+def get_server():
     info = read_info()
     if out_format == 'table':
         show_database_info(info)
@@ -115,23 +110,10 @@ def get_connection():
         return None, None
     dc = DatabaseConf(info['conf'][info['use']['env']].get(info['use']['conf'], {}))
     try:
-        if dc.is_mysql():
-            return pymysql.connect(host=dc.host, user=dc.user, password=dc.password,
-                                   database=dc.database, port=dc.port,
-                                   charset=dc.charset,
-                                   autocommit=dc.autocommit), dc
-        if dc.is_sql_server():
-            return pymssql.connect(host=dc.host, user=dc.user, password=dc.password,
-                                   database=dc.database, port=dc.port,
-                                   charset=dc.charset,
-                                   autocommit=dc.autocommit), dc
-        if dc.is_mongo():
-            return pymongo.MongoClient(host=dc.host), dc
-        pu.print_error_msg(f"invalid serverType: {dc.server_type}")
-        return None, dc
+        return ServerFactory.get_server(dc)
     except BaseException as e:
-        pu.print_error_msg(e)
-        return None, dc
+        DEFAULT_MP.print_error_msg(e)
+        return None
 
 
 def get_tab_name_from_sql(src_sql):
@@ -172,7 +154,7 @@ def exe_query(sql, conn):
         write_history('sql', sql, Stat.OK)
     except BaseException as be:
         write_history('sql', sql, Stat.ERROR)
-        pu.print_error_msg(be)
+        DEFAULT_MP.print_error_msg(be)
     return description, res_list
 
 
@@ -192,37 +174,41 @@ def exe_no_query(sql, conn):
             conn.commit()
         except:
             if not effect_rows and out_format == 'table':
-                print(WARN_COLOR.wrap('Empty Sets!'))
+                DEFAULT_MP.print_warn_msg('Empty Sets!')
         success = True
         write_history('sql', sql, Stat.OK)
     except BaseException as be:
         write_history('sql', sql, Stat.ERROR)
-        pu.print_error_msg(be)
+        DEFAULT_MP.print_error_msg(be)
     return effect_rows, description, res, success
 
 
-def get_list_obj_sql(obj, dc: DatabaseConf):
+def get_list_obj_sql(obj, server):
     if obj in {'database', 'databases'}:
-        return dc.server_type.value.get_list_databases_sql()
+        return server.get_list_databases_sql()
     elif obj in {'table', 'tables'}:
-        return dc.server_type.value.get_list_tables_sql(dc.database)
+        return server.get_list_tables_sql(server.db_conf.database)
     elif obj in {'view', 'views'}:
-        return dc.server_type.value.get_list_views_sql(dc.database)
+        return server.get_list_views_sql(server.db_conf.database)
     else:
         return None
 
 
 def show(obj='table'):
-    conn, dc = get_connection()
-    if dc is None:
+    server = get_server()
+    if server is None:
         return
-    sql = get_list_obj_sql('table' if obj == '' else obj, dc)
+    dc = server.db_conf
+    sql = get_list_obj_sql('table' if obj == '' else obj, server)
     if sql is None:
-        pu.print_error_msg(f'invalid obj "{obj}"!')
+        DEFAULT_MP.print_error_msg(f'invalid obj "{obj}"!')
         write_history('show', obj, Stat.ERROR)
-    elif dc.is_mongo():
+        return
+    conn = server.get_connection()
+    if dc.server_type is DatabaseType.MONGO:
         db = conn[dc.database]
-        eval(sql)
+        header, res = eval(sql)
+        print_result_set(header, res, Query(dc.server_type, dc.database, sql, None, False))
     else:
         run_sql(Query(dc.server_type, dc.database, sql, fold=False), conn)
     conn.close()
@@ -245,7 +231,7 @@ def get_create_table_ddl(conn, query: Query):
 JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE t.name='{query.table_name}' AND s.name='dbo') tmp ON ic.COLUMN_NAME=tmp.col WHERE ic.TABLE_NAME='{query.table_name}' AND ic.TABLE_SCHEMA='dbo'"""
         effect_rows, description, res, success = exe_no_query(sql, conn)
         if not res or not res[0]:
-            pu.print_error_msg(f"{query.table_name} not found!")
+            DEFAULT_MP.print_error_msg(f"{query.table_name} not found!")
             return
         header2, res1 = before_print(get_table_head_from_description(description[1]), res[1], query)
         header, res2 = before_print(get_table_head_from_description(description[0]), res[0], query)
@@ -325,7 +311,7 @@ def print_table_description(conn, qy: Query):
         sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'IDENTITY' ELSE '' END Extra,ISNULL(CONVERT(varchar,ep.value), '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{qy.database}' AND obj.name='{qy.table_name}' ORDER BY col.colorder"""
     res = exe_query(sql, conn)[1]
     if not res or not res[0]:
-        pu.print_error_msg(f"{qy.table_name} not found!")
+        DEFAULT_MP.print_error_msg(f"{qy.table_name} not found!")
         return
     res = list(map(lambda row: list(row), res[0]))
     if qy.server_type is DatabaseType.SQL_SERVER:
@@ -356,16 +342,17 @@ def print_table_description(conn, qy: Query):
 
 
 def desc_table(tab_name, _fold, _columns, limit_rows, human):
-    conn, dc = get_connection()
-    if conn is None:
+    server = get_server()
+    if server is None:
         return
+    conn, dc = server.get_connection(), server.db_conf
     print_table_schema(conn, Query(dc.server_type, dc.database, None, tab_name, _fold, _columns, limit_rows, human))
     conn.close()
 
 
 def print_table_schema(conn, query, attach_sql=False):
     if query.server_type is DatabaseType.MONGO:
-        pu.print_error_msg("Mongo does not support desc option!")
+        DEFAULT_MP.print_error_msg("Mongo does not support desc option!")
         return
     if out_format != 'sql':
         print_table_description(conn, query)
@@ -383,6 +370,7 @@ def get_table_head_from_description(description):
 def print_mongo_result(mongo_result, query):
     if mongo_result is None:
         return
+    import pymongo
     header_list, result_list = [], []
     if isinstance(mongo_result, dict):
         result_list.append([])
@@ -420,7 +408,7 @@ def exe_mongo(conn, query):
         write_history('sql', query.sql, Stat.OK)
     except Exception as e:
         write_history('sql', query.sql, Stat.ERROR)
-        pu.print_error_msg(e)
+        DEFAULT_MP.print_error_msg(e)
 
 
 def run_sql(query, conn):
@@ -437,7 +425,7 @@ def run_sql(query, conn):
             print_result_set(get_table_head_from_description(d), r, query, index)
             print()
     if effect_rows and out_format == 'table':
-        print(INFO_COLOR.wrap(f'Effect rows:{effect_rows}'))
+        DEFAULT_MP.print_info_msg(f'Effect rows:{effect_rows}')
 
 
 def deal_res(res):
@@ -472,36 +460,40 @@ def before_print(header, res, query):
 
 
 def run_one_sql(sql, _fold, _columns, limit_rows, human):
-    conn, dc = get_connection()
-    if conn is None:
+    server = get_server()
+    if server is None:
         return
+    dc, conn = server.db_conf, server.get_connection()
     run_sql(Query(dc.server_type, dc.database, sql, None, _fold, _columns, limit_rows, human), conn)
     conn.close()
 
 
 def scan(tab, _fold, _columns, limit_rows, human):
-    conn, dc = get_connection()
-    if conn is None:
+    server = get_server()
+    if server is None:
         return
-    run_sql(Query(dc.server_type, dc.database, dc.server_type.value.get_scan_table_sql(tab), tab,
+    dc, conn = server.db_conf, server.get_connection()
+    run_sql(Query(dc.server_type, dc.database, server.get_scan_table_sql(tab), tab,
                   _fold, _columns, limit_rows, human), conn)
     conn.close()
 
 
 def peek(tab, _fold, _columns, limit_rows, human):
-    conn, dc = get_connection()
-    if conn is None:
+    server = get_server()
+    if server is None:
         return
+    dc, conn = server.db_conf, server.get_connection()
     run_sql(Query(dc.server_type, dc.database, dc.server_type.value.get_peek_table_sql(tab),
                   tab, _fold, _columns, limit_rows, human), conn)
     conn.close()
 
 
 def count(tab):
-    conn, dc = get_connection()
-    if conn is None:
+    server = get_server()
+    if server is None:
         return
-    run_sql(Query(dc.server_type, dc.database, dc.server_type.value.get_count_table_sql(tab), tab, False), conn)
+    dc, conn = server.db_conf, server.get_connection()
+    run_sql(Query(dc.server_type, dc.database, server.get_count_table_sql(tab), tab, False), conn)
     conn.close()
 
 
@@ -509,15 +501,15 @@ def print_result_set(header, res, query, res_index=0):
     if not header:
         return
     if not res and out_format == 'table':
-        print(WARN_COLOR.wrap('Empty Sets!'))
+        DEFAULT_MP.print_warn_msg('Empty Sets!')
         return
     header, res = before_print(header, res, query)
     if out_format == 'table':
-        pu.print_table(header, res, DEFAULT_PC,
-                       start_func=lambda tw, pc: print(DEFAULT_PC.info_color.wrap(f'Result Sets [{res_index}]:')))
+        pu.print_table(header, res, DEFAULT_PC, DEFAULT_MP,
+                       start_func=lambda tw, mp: mp.print_info_msg(f'Result Sets [{res_index}]:'))
     elif out_format == 'sql' and query and query.server_type and query.sql:
         pu.print_insert_sql(header, res, query.table_name if query.table_name else get_tab_name_from_sql(query.sql),
-                            query.server_type)
+                            query.server_type, DEFAULT_MP)
     elif out_format == 'json':
         pu.print_json(header, res)
     elif out_format == 'html':
@@ -535,9 +527,9 @@ def print_result_set(header, res, query, res_index=0):
     elif out_format == 'csv':
         pu.print_csv(header, res)
     elif out_format == 'text':
-        pu.print_table(header, res, DEFAULT_PC, lambda a, pc: a, lambda a, b, c, d, e: a, lambda a, b, c: a)
+        pu.print_table(header, res, DEFAULT_PC, DEFAULT_MP, lambda a, b: a, lambda a, b, c, d, e: a, lambda a, b, c: a)
     else:
-        pu.print_error_msg(f'Invalid out format : "{out_format}"!')
+        DEFAULT_MP.print_error_msg(f'Invalid out format : "{out_format}"!')
 
 
 def deal_human(rows):
@@ -562,14 +554,14 @@ def print_info():
         write_history('info', '', Stat.OK)
     except BaseException as be:
         write_history('info', '', Stat.ERROR)
-        pu.print_error_msg(be)
+        DEFAULT_MP.print_error_msg(be)
 
 
 def disable_color():
-    global DEFAULT_PC, INFO_COLOR, WARN_COLOR
+    global DEFAULT_PC, DEFAULT_MP
     DEFAULT_PC.disable_color()
-    INFO_COLOR = pu.Color.NO_COLOR
-    WARN_COLOR = pu.Color.NO_COLOR
+    DEFAULT_MP.disable_info_color()
+    DEFAULT_MP.disable_warn_color()
 
 
 class Opt(Enum):
@@ -580,38 +572,38 @@ class Opt(Enum):
 
 def parse_info_obj(_read_info, info_obj, opt=Opt.READ):
     if info_obj:
-        for conf_key in config:
+        for conf_key in CONFIG:
             if conf_key not in info_obj.keys():
                 continue
             set_conf_value = info_obj[conf_key]
             if conf_key == 'env':
-                _read_info['use']['env'] = EnvType(set_conf_value).value
+                _read_info['use']['env'] = set_conf_value
                 if opt is Opt.UPDATE:
-                    print(INFO_COLOR.wrap(f"set env={set_conf_value} ok."))
+                    DEFAULT_MP.print_info_msg(f"set env={set_conf_value} ok.")
                 continue
             elif conf_key == 'conf':
                 if set_conf_value in _read_info['conf'][_read_info['use']['env']].keys():
                     if opt is Opt.UPDATE:
                         _read_info['use']['conf'] = set_conf_value
-                        print(INFO_COLOR.wrap(f"set conf={set_conf_value} ok."))
+                        DEFAULT_MP.print_info_msg(f"set conf={set_conf_value} ok.")
                 elif opt is Opt.UPDATE:
-                    i = input(WARN_COLOR.wrap("Are you sure you want to add this configuration? \nY/N:")).lower()
+                    i = input("Are you sure you want to add this configuration? \nY/N:").lower()
                     if i in ('y', 'yes'):
                         _read_info['use']['conf'] = set_conf_value
                         _read_info['conf'][_read_info['use']['env']][_read_info['use']['conf']] = {}
-                        print(INFO_COLOR.wrap(f'Add "{set_conf_value}" conf in env={_read_info["use"]["env"]}'))
+                        DEFAULT_MP.print_info_msg(f'Add "{set_conf_value}" conf in env={_read_info["use"]["env"]}')
                 continue
             elif conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
-                pu.print_error_msg(f'server type: "{set_conf_value}" not supported!')
+                DEFAULT_MP.print_error_msg(f'server type: "{set_conf_value}" not supported!')
                 continue
             elif conf_key == 'autocommit':
                 if set_conf_value.lower() not in {'true', 'false'}:
-                    pu.print_error_msg(f'"{set_conf_value}" incorrect parameters!')
+                    DEFAULT_MP.print_error_msg(f'"{set_conf_value}" incorrect parameters!')
                     continue
                 set_conf_value = set_conf_value.lower() == 'true'
             elif conf_key == 'port':
                 if not set_conf_value.isdigit():
-                    pu.print_error_msg(f'set port={set_conf_value} fail!')
+                    DEFAULT_MP.print_error_msg(f'set port={set_conf_value} fail!')
                     continue
                 set_conf_value = int(set_conf_value)
             _read_info['conf'][_read_info['use']['env']][_read_info['use']['conf']][conf_key] = set_conf_value
@@ -644,11 +636,11 @@ def set_info(kv):
             try:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                pu.print_error_msg("set fail, please retry!")
+                DEFAULT_MP.print_error_msg("set fail, please retry!")
                 write_history('set', kv, Stat.ERROR)
                 return
             if is_locked():
-                pu.print_error_msg("db is locked! can't set value.")
+                DEFAULT_MP.print_error_msg("db is locked! can't set value.")
                 write_history('set', kv, Stat.ERROR)
                 return
             kv_pair = kv.split('=', 1)
@@ -658,7 +650,7 @@ def set_info(kv):
             write_history('set', kv, Stat.OK)
     except BaseException as be:
         write_history('set', kv, Stat.ERROR)
-        pu.print_error_msg(be)
+        DEFAULT_MP.print_error_msg(be)
 
 
 def is_locked():
@@ -677,12 +669,12 @@ def unlock(key):
         try:
             fcntl.flock(t_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            pu.print_error_msg("unlock fail, please retry!")
+            DEFAULT_MP.print_error_msg("unlock fail, please retry!")
             write_history('unlock', '*' * 6, Stat.ERROR)
             return
         lock_val = lock_value()
         if not lock_val:
-            pu.print_error_msg('The db is not locked.')
+            DEFAULT_MP.print_error_msg('The db is not locked.')
             write_history('unlock', '*' * 6, Stat.ERROR)
             return
         key = key if key else ""
@@ -690,10 +682,10 @@ def unlock(key):
         m.update(key.encode('UTF-8'))
         if m.hexdigest() == lock_val:
             os.remove(os.path.join(get_proc_home(), 'config/.db.lock.value'))
-            print(INFO_COLOR.wrap('db unlocked!'))
+            DEFAULT_MP.print_info_msg('db unlocked!')
             write_history('unlock', '*' * 6, Stat.OK)
         else:
-            pu.print_error_msg('Incorrect key!')
+            DEFAULT_MP.print_error_msg('Incorrect key!')
             write_history('unlock', key, Stat.ERROR)
         fcntl.flock(t_lock_file.fileno(), fcntl.LOCK_UN)
 
@@ -703,11 +695,11 @@ def lock(key: str):
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            pu.print_error_msg("lock fail, please retry!")
+            DEFAULT_MP.print_error_msg("lock fail, please retry!")
             write_history('lock', '*' * 6, Stat.ERROR)
             return
         if is_locked():
-            pu.print_error_msg('The db is already locked, you must unlock it first!')
+            DEFAULT_MP.print_error_msg('The db is already locked, you must unlock it first!')
             write_history('lock', '*' * 6, Stat.ERROR)
             return
         key = key if key else ""
@@ -717,7 +709,7 @@ def lock(key: str):
         with open(lock_file, mode='w+') as f:
             f.write(m.hexdigest())
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-        print(INFO_COLOR.wrap('db locked!'))
+        DEFAULT_MP.print_info_msg('db locked!')
         write_history('lock', '*' * 6, Stat.OK)
 
 
@@ -726,13 +718,14 @@ def print_usage():
 
 
 def shell():
-    conn, dc = get_connection()
-    if conn is None:
+    server = get_server()
+    if server is None:
         return
-    if dc.is_mongo():
-        pu.print_error_msg("Mongo does not support shell option!")
-        conn.close()
+    dc = server.db_conf
+    if dc.server_type is DatabaseType.MONGO:
+        DEFAULT_MP.print_error_msg("Mongo does not support shell option!")
         return
+    conn = server.get_connection()
     val = input('db>').strip()
     while val not in {'quit', '!q', 'exit'}:
         if not (val == '' or val.strip() == ''):
@@ -758,24 +751,25 @@ def load(path):
                     res.append(_cur.fetchall())
             except Exception:
                 if effect_rows:
-                    print(WARN_COLOR.wrap(f'Effect rows:{effect_rows}'))
+                    DEFAULT_MP.print_warn_msg(f'Effect rows:{effect_rows}')
             for r, d in zip(res, description):
                 print_result_set(get_table_head_from_description(d), r, _query)
             return 1, 0
         except BaseException as be:
-            pu.print_error_msg(f"SQL:{_query.sql}, ERROR MESSAGE:{be}")
+            DEFAULT_MP.print_error_msg(f"SQL:{_query.sql}, ERROR MESSAGE:{be}")
             return 0, 1
 
     success_num, fail_num = 0, 0
     try:
         if os.path.exists(path):
-            conn, dc = get_connection()
-            if conn is None:
+            server = get_server()
+            if server is None:
                 return
-            if dc.is_mongo():
-                pu.print_error_msg("Mongo does not support load option!")
-                conn.close()
+            dc = server.db_conf
+            if dc.server_type is DatabaseType.MONGO:
+                DEFAULT_MP.print_error_msg("Mongo does not support load option!")
                 return
+            conn = server.get_connection()
             cur = conn.cursor()
             with open(path, mode='r', encoding='UTF8') as sql_file:
                 sql = ''
@@ -802,13 +796,13 @@ def load(path):
                 conn.commit()
             cur.close()
             conn.close()
-            print(INFO_COLOR.wrap(f'end load. {success_num} successfully executed, {fail_num} failed.'))
+            DEFAULT_MP.print_info_msg(f'end load. {success_num} successfully executed, {fail_num} failed.')
             write_history('load', path, Stat.OK)
         else:
-            pu.print_error_msg(f"path:{path} not exist!")
+            DEFAULT_MP.print_error_msg(f"path:{path} not exist!")
             write_history('load', path, Stat.ERROR)
     except BaseException as be:
-        pu.print_error_msg(be)
+        DEFAULT_MP.print_error_msg(be)
         write_history('load', path, Stat.ERROR)
 
 
@@ -822,7 +816,7 @@ def show_conf(_fold):
             new_row.extend([db_conf[env][conf].get(key, '') for key in head[2:]])
             print_content.append(new_row)
     header, res = before_print(head, print_content, Query(None, None, None, fold=_fold))
-    pu.print_table(header, res, DEFAULT_PC)
+    pu.print_table(header, res, DEFAULT_PC, DEFAULT_MP)
     write_history('conf', '', Stat.OK)
 
 
@@ -841,15 +835,16 @@ def test():
 
 
 def export(_fold):
-    conn, dc = get_connection()
-    if conn is None:
+    server = get_server()
+    if server is None:
         return
-    if dc.is_mongo():
-        pu.print_error_msg("Mongo does not support export option!")
-        conn.close()
+    dc = server.db_conf
+    if dc.server_type is DatabaseType.MONGO:
+        DEFAULT_MP.print_error_msg("Mongo does not support export option!")
         return
+    conn = server.get_connection()
     try:
-        tab_list = exe_query(get_list_obj_sql('table', dc), conn)[1]
+        tab_list = exe_query(get_list_obj_sql('table', server), conn)[1]
         split_line, print_template = '\n---\n' if out_format == 'markdown' else '\n', get_print_template_with_format()
         attach_sql = export_type == 'ddl'
         for tab in tab_list[0]:
@@ -858,9 +853,9 @@ def export(_fold):
                 print_table_schema(conn, Query(dc.server_type, dc.database, None, tab[0], _fold), attach_sql)
                 print(split_line)
             if export_type in {'all', 'data'}:
-                q = Query(dc.server_type, dc.database, dc.server_type.value.get_scan_table_sql(tab[0]), tab[0], _fold)
+                q = Query(dc.server_type, dc.database, server.get_scan_table_sql(tab[0]), tab[0], _fold)
                 print(print_template.format(f'Dumping data for {tab[0]}'), end='')
-                if dc.is_sql_server() and out_format == 'sql':
+                if dc.server_type is DatabaseType.SQL_SERVER and out_format == 'sql':
                     headers, results = exe_query(f'sp_columns [{tab[0]}];{q.sql}', conn)
                     set_identity_insert = len([1 for row in results[0] if row[5].endswith("identity")]) > 0
                     if set_identity_insert:
@@ -874,14 +869,14 @@ def export(_fold):
         write_history('export', export_type, Stat.OK)
     except BaseException as be:
         write_history('export', export_type, Stat.ERROR)
-        pu.print_error_msg(be)
+        DEFAULT_MP.print_error_msg(be)
     finally:
         conn.close()
 
 
 def parse_args(args):
     def _error_param_exit(param):
-        pu.print_error_msg(f'Invalid param : "{param}"!')
+        DEFAULT_MP.print_error_msg(f'Invalid param : "{param}"!')
         sys.exit(-1)
 
     option = args[1].strip().lower() if len(args) > 1 else ''
@@ -977,8 +972,8 @@ if __name__ == '__main__':
         elif opt == 'version':
             pu.print_config('.db.version')
         else:
-            pu.print_error_msg("Invalid operation!")
+            DEFAULT_MP.print_error_msg("Invalid operation!")
             print_usage()
     except Exception as e:
-        pu.print_error_msg(e)
+        DEFAULT_MP.print_error_msg(e)
         traceback.print_exc(chain=e)

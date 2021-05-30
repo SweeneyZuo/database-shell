@@ -2,6 +2,31 @@ import abc
 from enum import Enum
 
 
+class DatabaseType(Enum):
+    SQL_SERVER = 'sqlserver'
+    MYSQL = 'mysql'
+    MONGO = 'mongo'
+
+    @staticmethod
+    def support(server_type):
+        return server_type in set(map(lambda x: x.value, DatabaseType))
+
+    @staticmethod
+    def parse(server_type):
+        for d in DatabaseType:
+            if d.value == server_type:
+                return d
+        raise DbException("server type invalid!")
+
+    def escape_value(self, value):
+        if self is self.MYSQL:
+            return f"`{value}`"
+        if self is self.SQL_SERVER:
+            return f"[{value}]"
+        if self is self.MONGO:
+            return value
+
+
 class Query():
     def __init__(self,
                  server_type,
@@ -67,137 +92,20 @@ class Query():
 class DbException(Exception): pass
 
 
-class Server():
-    __slots__ = ('__server_name')
-
-    def __init__(self, server_name):
-        self.__server_name = server_name
-
-    @property
-    def server_name(self):
-        return self.__server_name
-
-    @server_name.setter
-    def server_name(self, server_name):
-        self.__server_name = server_name
-
-    def get_count_table_sql(self, tab_name):
-        return f'SELECT COUNT(*) row_count FROM {self.escape_value(tab_name)}'
-
-    def get_peek_table_sql(self, tab_name):
-        return f'SELECT * FROM {self.escape_value(tab_name)} LIMIT 1'
-
-    def get_scan_table_sql(self, tab_name):
-        return f"SELECT * FROM {self.escape_value(tab_name)}"
-
-    @abc.abstractmethod
-    def escape_value(self, value):
-        pass
-
-    @abc.abstractmethod
-    def get_list_databases_sql(self):
-        pass
-
-    @abc.abstractmethod
-    def get_list_tables_sql(self, database):
-        pass
-
-    @abc.abstractmethod
-    def get_list_views_sql(self, database):
-        pass
-
-
-class MySQLServer(Server):
-    def __init__(self):
-        super().__init__('mysql')
-
-    def escape_value(self, value):
-        return f'`{value}`'
-
-    def get_list_databases_sql(self):
-        return f"SELECT SCHEMA_NAME `Database` FROM information_schema.SCHEMATA ORDER BY `Database`"
-
-    def get_list_tables_sql(self, database):
-        return f"SELECT TABLE_NAME `Table` FROM information_schema.tables WHERE TABLE_SCHEMA='{database}' ORDER BY TABLE_NAME"
-
-    def get_list_views_sql(self, database):
-        return f"SELECT DISTINCT TABLE_NAME `View` FROM information_schema.views WHERE TABLE_SCHEMA='{database}' ORDER BY `View`"
-
-
-class SQLServer(Server):
-    def __init__(self):
-        super().__init__('sqlserver')
-
-    def get_peek_table_sql(self, tab_name):
-        return f'SELECT TOP 1 * FROM {self.escape_value(tab_name)}'
-
-    def escape_value(self, value):
-        return f'[{value}]'
-
-    def get_list_databases_sql(self):
-        return "SELECT name [Database] FROM sys.sysdatabases ORDER BY name"
-
-    def get_list_tables_sql(self, database):
-        return "SELECT name [Table] FROM sys.tables ORDER BY name"
-
-    def get_list_views_sql(self, database):
-        return f"SELECT DISTINCT TABLE_NAME [View] FROM information_schema.views WHERE TABLE_CATALOG='{database}' ORDER BY TABLE_NAME"
-
-
-class MongoDBServer(Server):
-    def __init__(self):
-        super().__init__('mongo')
-
-    def get_count_table_sql(self, tab_name):
-        return f"db.{self.escape_value(tab_name)}.count()"
-
-    def get_peek_table_sql(self, tab_name):
-        return f'db.{self.escape_value(tab_name)}.find_one()'
-
-    def get_scan_table_sql(self, tab_name):
-        return f'db.{self.escape_value(tab_name)}.find()'
-
-    def escape_value(self, value):
-        return f'{value}'
-
-    def get_list_databases_sql(self):
-        return "print_result_set(['Database'], [[c] for c in sorted(conn.list_database_names())], columns, False, None, 0, dc)"
-
-    def get_list_tables_sql(self, database):
-        return "print_result_set(['Collection'], [[c] for c in sorted(db.list_collection_names())], columns, False, None, 0, dc)"
-
-    def get_list_views_sql(self, database):
-        raise DbException("Mongo does not support list views option!")
-
-
-class DatabaseType(Enum):
-    SQL_SERVER = SQLServer()
-    MYSQL = MySQLServer()
-    MONGO = MongoDBServer()
-
-    @staticmethod
-    def support(server_type):
-        return server_type in set(map(lambda x: x.value.server_name, DatabaseType))
-
-    @staticmethod
-    def parse(server_type):
-        for d in DatabaseType:
-            if d.value.server_name == server_type:
-                return d
-        raise DbException("server type invalid!")
-
-
-class EnvType(Enum):
-    DEV = 'dev'
-    PROD = 'prod'
-    QA = 'qa'
-
-
 class DatabaseConf(object):
-    __slots__ = ('__server_type', '__host', '__port', '__user', '__password', '__database', '__charset', '__autocommit')
+    __slots__ = ('__server_type',
+                 '__host',
+                 '__port',
+                 '__user',
+                 '__password',
+                 '__database',
+                 '__charset',
+                 '__autocommit',
+                 '__connection')
 
     def __init__(self, conf: dict):
         self.__server_type = DatabaseType.parse(conf.get('servertype', ''))
+        self.__host = conf.get('host', '')
         self.__host = conf.get('host', '')
         self.__port = conf.get('port', '')
         self.__user = conf.get('user', '')
@@ -205,23 +113,11 @@ class DatabaseConf(object):
         self.__database = conf.get('database', '')
         self.__charset = conf.get('charset', 'UTF8')
         self.__autocommit = conf.get('autocommit', False)
-
-    def is_mysql(self):
-        return self.__server_type is DatabaseType.MYSQL
-
-    def is_sql_server(self):
-        return self.__server_type is DatabaseType.SQL_SERVER
-
-    def is_mongo(self):
-        return self.__server_type is DatabaseType.MONGO
+        self.__connection = None
 
     @property
     def server_type(self):
         return self.__server_type
-
-    @server_type.setter
-    def server_type(self, server_type):
-        self.__server_type = server_type
 
     @property
     def host(self):
@@ -278,3 +174,151 @@ class DatabaseConf(object):
     @autocommit.setter
     def autocommit(self, autocommit):
         self.__autocommit = autocommit
+
+    @property
+    def conn(self):
+        return self.__connection
+
+
+class Server():
+    __slots__ = ('__db_conf', '_connection')
+
+    def __init__(self, db_conf):
+        self.__db_conf = db_conf
+        self._connection = None
+
+    @property
+    def db_conf(self):
+        return self.__db_conf
+
+    def get_count_table_sql(self, tab_name):
+        return f'SELECT COUNT(*) row_count FROM {self.escape_value(tab_name)}'
+
+    def get_peek_table_sql(self, tab_name):
+        return f'SELECT * FROM {self.escape_value(tab_name)} LIMIT 1'
+
+    def get_scan_table_sql(self, tab_name):
+        return f"SELECT * FROM {self.escape_value(tab_name)}"
+
+    @abc.abstractmethod
+    def escape_value(self, value):
+        pass
+
+    @abc.abstractmethod
+    def get_list_databases_sql(self):
+        pass
+
+    @abc.abstractmethod
+    def get_list_tables_sql(self, database):
+        pass
+
+    @abc.abstractmethod
+    def get_list_views_sql(self, database):
+        pass
+
+    @abc.abstractmethod
+    def get_connection(self):
+        pass
+
+
+class MySQLServer(Server):
+    def __init__(self, db_conf):
+        super().__init__(db_conf)
+
+    def escape_value(self, value):
+        return f'`{value}`'
+
+    def get_list_databases_sql(self):
+        return f"SELECT SCHEMA_NAME `Database` FROM information_schema.SCHEMATA ORDER BY `Database`"
+
+    def get_list_tables_sql(self, database):
+        return f"SELECT TABLE_NAME `Table` FROM information_schema.tables WHERE TABLE_SCHEMA='{database}' ORDER BY TABLE_NAME"
+
+    def get_list_views_sql(self, database):
+        return f"SELECT DISTINCT TABLE_NAME `View` FROM information_schema.views WHERE TABLE_SCHEMA='{database}' ORDER BY `View`"
+
+    def get_connection(self):
+        if self._connection is None:
+            import pymysql
+            db_conf = super().db_conf
+            self._connection = pymysql.connect(host=super().db_conf.host, user=super().db_conf.user,
+                                               password=super().db_conf.password, database=super().db_conf.database,
+                                               port=super().db_conf.port, charset=super().db_conf.charset,
+                                               autocommit=super().db_conf.autocommit)
+        return self._connection
+
+
+class SQLServer(Server):
+
+    def __init__(self, db_conf):
+        super().__init__(db_conf)
+
+    def get_peek_table_sql(self, tab_name):
+        return f'SELECT TOP 1 * FROM {self.escape_value(tab_name)}'
+
+    def escape_value(self, value):
+        return f'[{value}]'
+
+    def get_list_databases_sql(self):
+        return "SELECT name [Database] FROM sys.sysdatabases ORDER BY name"
+
+    def get_list_tables_sql(self, database):
+        return "SELECT name [Table] FROM sys.tables ORDER BY name"
+
+    def get_list_views_sql(self, database):
+        return f"SELECT DISTINCT TABLE_NAME [View] FROM information_schema.views WHERE TABLE_CATALOG='{database}' ORDER BY TABLE_NAME"
+
+    def get_connection(self):
+        if self._connection is None:
+            import pymssql
+            self._connection = pymssql.connect(host=super().db_conf.host, user=super().db_conf.user,
+                                               password=super().db_conf.password, database=super().db_conf.database,
+                                               port=super().db_conf.port, charset=super().db_conf.charset,
+                                               autocommit=super().db_conf.autocommit)
+        return self._connection
+
+
+class MongoDBServer(Server):
+    __slots__ = ('__connection')
+
+    def __init__(self, db_conf):
+        super().__init__(db_conf)
+
+    def get_count_table_sql(self, tab_name):
+        return f"db.{self.escape_value(tab_name)}.count()"
+
+    def get_peek_table_sql(self, tab_name):
+        return f'db.{self.escape_value(tab_name)}.find_one()'
+
+    def get_scan_table_sql(self, tab_name):
+        return f'db.{self.escape_value(tab_name)}.find()'
+
+    def escape_value(self, value):
+        return f'{value}'
+
+    def get_list_databases_sql(self):
+        return "['Database'], [[c] for c in sorted(conn.list_database_names())]"
+
+    def get_list_tables_sql(self, database):
+        return "['Collection'], [[c] for c in sorted(db.list_collection_names())]"
+
+    def get_list_views_sql(self, database):
+        raise DbException("Mongo does not support list views option!")
+
+    def get_connection(self):
+        if self._connection is None:
+            import pymongo
+            self._connection = pymongo.MongoClient(host=super().db_conf.host)
+        return self._connection
+
+
+class ServerFactory():
+    @staticmethod
+    def get_server(dc: DatabaseConf):
+        if dc.server_type is DatabaseType.MYSQL:
+            return MySQLServer(dc)
+        if dc.server_type is DatabaseType.SQL_SERVER:
+            return SQLServer(dc)
+        if dc.server_type is DatabaseType.MONGO:
+            return MongoDBServer(dc)
+        return None
