@@ -181,15 +181,15 @@ class DatabaseConf:
 
 
 class Server:
-    __slots__ = ('__db_conf', '_connection')
+    __slots__ = ('_db_conf', '_connection')
 
     def __init__(self, db_conf):
-        self.__db_conf = db_conf
+        self._db_conf = db_conf
         self._connection = None
 
     @property
     def db_conf(self):
-        return self.__db_conf
+        return self._db_conf
 
     def get_count_table_sql(self, tab_name):
         return f'SELECT COUNT(*) row_count FROM {self.escape_value(tab_name)}'
@@ -222,8 +222,6 @@ class Server:
 
 
 class MySQLServer(Server):
-    def __init__(self, db_conf):
-        super().__init__(db_conf)
 
     def escape_value(self, value):
         return f'`{value}`'
@@ -240,18 +238,14 @@ class MySQLServer(Server):
     def get_connection(self):
         if self._connection is None:
             import pymysql
-            db_conf = super().db_conf
-            self._connection = pymysql.connect(host=super().db_conf.host, user=super().db_conf.user,
-                                               password=super().db_conf.password, database=super().db_conf.database,
-                                               port=super().db_conf.port, charset=super().db_conf.charset,
-                                               autocommit=super().db_conf.autocommit)
+            self._connection = pymysql.connect(host=self.db_conf.host, user=self.db_conf.user,
+                                               password=self.db_conf.password, database=self.db_conf.database,
+                                               port=self.db_conf.port, charset=self.db_conf.charset,
+                                               autocommit=self.db_conf.autocommit)
         return self._connection
 
 
 class SQLServer(Server):
-
-    def __init__(self, db_conf):
-        super().__init__(db_conf)
 
     def get_peek_table_sql(self, tab_name):
         return f'SELECT TOP 1 * FROM {self.escape_value(tab_name)}'
@@ -271,10 +265,10 @@ class SQLServer(Server):
     def get_connection(self):
         if self._connection is None:
             import pymssql
-            self._connection = pymssql.connect(host=super().db_conf.host, user=super().db_conf.user,
-                                               password=super().db_conf.password, database=super().db_conf.database,
-                                               port=super().db_conf.port, charset=super().db_conf.charset,
-                                               autocommit=super().db_conf.autocommit)
+            self._connection = pymssql.connect(host=self.db_conf.host, user=self.db_conf.user,
+                                               password=self.db_conf.password, database=self.db_conf.database,
+                                               port=self.db_conf.port, charset=self.db_conf.charset,
+                                               autocommit=self.db_conf.autocommit)
         return self._connection
 
 
@@ -308,7 +302,7 @@ class MongoDBServer(Server):
     def get_connection(self):
         if self._connection is None:
             import pymongo
-            self._connection = pymongo.MongoClient(host=super().db_conf.host)
+            self._connection = pymongo.MongoClient(host=self.db_conf.host)
         return self._connection
 
 

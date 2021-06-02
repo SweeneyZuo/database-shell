@@ -1,4 +1,4 @@
-# !/bin/bash
+#!/bin/bash
 
 is_installed=`db test`
 
@@ -64,6 +64,7 @@ rm install.sh
 # install python env
 pip3 install pymysql
 pip3 install pymssql
+pip3 install pymongo
 
 # remove \r\n
 dos2unix *

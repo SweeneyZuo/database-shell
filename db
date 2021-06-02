@@ -1,3 +1,2 @@
 #!/usr/bin/env bash
-cd E:/code/database-tool
-python ./database.pyc "$@"
+python3 database.pyc "$@"

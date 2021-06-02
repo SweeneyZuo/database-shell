@@ -3,7 +3,7 @@ import sys
 import html
 import json
 from enum import Enum
-from databasecore import DatabaseType
+from core.core import DatabaseType
 
 __all__ = [
     'print_table', 'print_markdown', 'print_insert_sql', 'print_json', 'print_config',
