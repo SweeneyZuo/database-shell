@@ -12,6 +12,7 @@ def get_print_template(out_format):
 
 
 class ExportCmd(DescCmd):
+    name = 'export'
 
     @property
     def export_type(self):
@@ -22,7 +23,8 @@ class ExportCmd(DescCmd):
         server = self.get_server()
         dc = server.db_conf
         if dc.server_type is DatabaseType.MONGO:
-            printer.print_error_msg("MongoDB does not support export option!")
+            printer.print_error_msg("Not Support MongoDB!")
+            self.write_error_history("Not Support MongoDB")
             return
         conn = server.get_connection()
         try:

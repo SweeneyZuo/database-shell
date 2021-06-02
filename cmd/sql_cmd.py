@@ -1,19 +1,21 @@
 import sys
+from collections import Iterable
 
 from cmd.conf_cmd import ConfCmd
 from core.core import DatabaseType, Query, DatabaseConf, ServerFactory
 
 
 class SqlCmd(ConfCmd):
+    name = 'sql'
 
     def check_conf(self, db_conf: dict):
         if db_conf['use']['conf'] == ConfCmd.DEFAULT_CONF:
-            self.printer.print_error_msg('please set conf!')
+            self.printer.print_error_msg('Please Set conf!')
             return False
         conf_keys = db_conf['conf'][db_conf['use']['env']][db_conf['use']['conf']].keys()
         for conf in ConfCmd.CONFIG[2:8]:
             if conf not in conf_keys:
-                self.printer.print_error_msg(f'please set {conf}!')
+                self.printer.print_error_msg(f'Please Set {conf}!')
                 return False
         return True
 
@@ -22,25 +24,26 @@ class SqlCmd(ConfCmd):
         if self.out_format == 'table':
             self.show_database_info(info)
         if not self.check_conf(info):
+            self.write_error_history('Conf Error')
             sys.exit(-1)
         dc = DatabaseConf(info['conf'][info['use']['env']].get(info['use']['conf'], {}))
         try:
             return ServerFactory.get_server(dc)
         except BaseException as e:
             self.printer.print_error_msg(e)
+            self.write_error_history("Can't Create Server")
             sys.exit(-1)
 
     def _deal_mongo_result(self, mongo_result):
         if mongo_result is None:
-            return
-        import pymongo
+            return None, None
         header_list, result_list = [], []
         if isinstance(mongo_result, dict):
             result_list.append([])
             for (k, value) in mongo_result.items():
                 header_list.append(k)
                 result_list[0].append(value)
-        elif isinstance(mongo_result, (pymongo.cursor.Cursor, pymongo.command_cursor.CommandCursor, list, tuple, set)):
+        elif isinstance(mongo_result, Iterable) and not isinstance(mongo_result, str):
             t_set, result_dict_list = set(), []
             for d in mongo_result:
                 if isinstance(d, dict):
@@ -52,7 +55,7 @@ class SqlCmd(ConfCmd):
                 else:
                     result_list.append([d])
             if result_list:
-                header_list.append(f'result({type(result_list[0][0]).__name__})')
+                header_list.append(f"result({type(result_list[0][0]).__name__})")
             for d in result_dict_list:
                 result_list.append([d.get(h, None) for h in header_list])
         else:
@@ -130,12 +133,11 @@ class SqlCmd(ConfCmd):
                 self.print_result_set(self._get_table_head_from_description(d), r, query, index)
                 self.printer.output('\n', end='')
         if effect_rows and self.out_format == 'table':
-            self.printer.print_info_msg(f'Effect rows:{effect_rows}')
+            self.printer.print_info_msg(f'Effect Rows:{effect_rows}')
 
     def exe(self):
         server = self.get_server()
         dc, conn = server.db_conf, server.get_connection()
-        self._run_sql(
-            Query(dc.server_type, dc.database, self.params['sql'], None, self.fold, self.columns, self.limit_rows,
-                  self.human), conn)
+        self._run_sql(Query(dc.server_type, dc.database, self.params['option_val'], None,
+                            self.fold, self.columns, self.limit_rows, self.human), conn)
         conn.close()

@@ -301,7 +301,7 @@ def print_insert_sql(header, res, tab_name, server_type: DatabaseType, mp):
                 yield f"'{e}'"
 
     if tab_name is None:
-        mp.print_error_msg("Can't get table name!")
+        mp.print_error_msg("Can't Get Table Name!")
         return
     if res:
         header = map(lambda x: server_type.escape_value(str(x)), header)

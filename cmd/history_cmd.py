@@ -13,6 +13,7 @@ class Stat(Enum):
 
 
 class HistoryCmd(PrintCmd):
+    name = 'history'
 
     def __write_history(self, content, stat):
         proc_home = self.get_proc_home()

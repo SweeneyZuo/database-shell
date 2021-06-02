@@ -3,12 +3,14 @@ from core.core import DatabaseType, Query
 
 
 class ShellCmd(SqlCmd):
+    name = 'shell'
+
     def exe(self):
         server = self.get_server()
         dc = server.db_conf
         if dc.server_type is DatabaseType.MONGO:
-            self.printer.print_error_msg("MongoDB does not support shell option!")
-            self.write_error_history("not support MongoDB")
+            self.printer.print_error_msg("Not Support MongoDB!")
+            self.write_error_history("Not Support MongoDB")
             return
         conn = server.get_connection()
         val = input('db>').strip()

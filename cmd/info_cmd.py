@@ -7,6 +7,8 @@ from cmd.history_cmd import HistoryCmd
 
 
 class InfoCmd(HistoryCmd):
+    name = 'info'
+
     def is_locked(self):
         return os.path.exists(os.path.join(self.get_proc_home(), 'config/.db.lock.value'))
 

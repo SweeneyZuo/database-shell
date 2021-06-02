@@ -5,6 +5,8 @@ from core.core import Query, DatabaseType
 
 
 class LoadCmd(SqlCmd):
+    name = 'load'
+
     def exe_sql(self, _cur, _query: Query):
         try:
             if not _query.sql:
@@ -28,14 +30,15 @@ class LoadCmd(SqlCmd):
             return 0, 1
 
     def exe(self):
-        path = self.params['path']
+        path = self.params['option_val']
         success_num, fail_num = 0, 0
         try:
             if os.path.exists(path):
                 server = self.get_server()
                 dc = server.db_conf
                 if dc.server_type is DatabaseType.MONGO:
-                    self.printer.print_error_msg("Mongo does not support load option!")
+                    self.printer.print_error_msg("Not Support MongoDB!")
+                    self.write_error_history('Not Support MongoDB')
                     return
                 conn = server.get_connection()
                 cur = conn.cursor()

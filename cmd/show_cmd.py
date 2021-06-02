@@ -3,6 +3,7 @@ from core.core import DatabaseType, Query
 
 
 class ShowCmd(SqlCmd):
+    name = 'show'
 
     def get_sql(self, server, show_obj):
         if show_obj in {'database', 'databases'}:
@@ -16,10 +17,11 @@ class ShowCmd(SqlCmd):
     def exe(self):
         server = self.get_server()
         dc = server.db_conf
-        show_obj = self.params.get('show_obj', 'table')
+        show_obj = self.params.get('option_val', 'table')
+        show_obj = show_obj.lower() if show_obj.lower() else 'table'
         sql = self.get_sql(server, show_obj)
         if sql is None:
-            self.printer.print_error_msg(f'invalid obj "{show_obj}"!')
+            self.printer.print_error_msg(f'Invalid Param "{show_obj}"!')
             self.write_error_history(show_obj)
             return
         conn = server.get_connection()

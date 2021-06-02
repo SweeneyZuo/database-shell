@@ -4,6 +4,7 @@ from core.core import Query
 
 
 class ConfCmd(InfoCmd):
+    name = 'conf'
     CONFIG = ['env', 'conf', 'servertype', 'host', 'port', 'user', 'password', 'database', 'charset', 'autocommit']
     DEFAULT_CONF = 'default'
     CONF_KEY = DEFAULT_CONF

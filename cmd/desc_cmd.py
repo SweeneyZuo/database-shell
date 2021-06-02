@@ -3,6 +3,7 @@ from core.core import DatabaseType, Query
 
 
 class DescCmd(SqlCmd):
+    name = 'desc'
 
     def get_sqlserver_index_information_dict(self, conn, tab_name, dbo='dbo'):
         index_formation = self._exe_query(
@@ -132,7 +133,8 @@ class DescCmd(SqlCmd):
 
     def _print_table_schema(self, conn, query, attach_sql=False):
         if query.server_type is DatabaseType.MONGO:
-            self.printer.print_error_msg("Mongo does not support desc option!")
+            self.printer.print_error_msg("Not Support MongoDB!")
+            self.write_error_history("Not Support MongoDB")
             return
         if self.out_format != 'sql':
             self.print_table_description(conn, query)
@@ -143,7 +145,7 @@ class DescCmd(SqlCmd):
             self.printer.output(f'\n```sql\n{ddl}\n```' if self.out_format == 'markdown' else ddl)
 
     def exe(self):
-        tab_name, server = self.params['tab_name'], self.get_server()
+        tab_name, server = self.params['option_val'], self.get_server()
         conn, dc = server.get_connection(), server.db_conf
         self._print_table_schema(conn, Query(dc.server_type, dc.database, None, tab_name, self.fold,
                                              self.columns, self.limit_rows, self.human))

@@ -16,7 +16,7 @@ class DatabaseType(Enum):
         for d in DatabaseType:
             if d.value == server_type:
                 return d
-        raise DbException("server type invalid!")
+        raise DbException("Invalid Server Type!")
 
     def escape_value(self, value):
         if self is self.MYSQL:
@@ -273,10 +273,6 @@ class SQLServer(Server):
 
 
 class MongoDBServer(Server):
-    __slots__ = ('__connection')
-
-    def __init__(self, db_conf):
-        super().__init__(db_conf)
 
     def get_count_table_sql(self, tab_name):
         return f"db.{self.escape_value(tab_name)}.count()"
@@ -297,7 +293,7 @@ class MongoDBServer(Server):
         return "['Collection'], [[c] for c in sorted(db.list_collection_names())]"
 
     def get_list_views_sql(self, database):
-        raise DbException("Mongo does not support list views option!")
+        raise DbException("Not Support MongoDB!")
 
     def get_connection(self):
         if self._connection is None:
