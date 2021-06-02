@@ -7,6 +7,7 @@ from cmd.help_cmd import HelpCmd
 from cmd.history_cmd import HistoryCmd
 from cmd.info_cmd import InfoCmd
 from cmd.load_cmd import LoadCmd
+from cmd.lock_cmd import LockCmd
 from cmd.peek_cmd import PeekCmd
 from cmd.print_cmd import PrintCmd
 from cmd.scan_cmd import ScanCmd
