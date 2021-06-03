@@ -1,5 +1,5 @@
 import sys
-from collections import Iterable
+from collections.abc import Iterable
 
 from cmd.conf_cmd import ConfCmd
 from core.core import DatabaseType, Query, DatabaseConf, ServerFactory

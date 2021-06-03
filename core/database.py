@@ -87,7 +87,7 @@ def parse_args(args):
     return option
 
 
-if __name__ == '__main__':
+def main():
     if platform.system().lower() == 'windows':
         disable_color()
     try:

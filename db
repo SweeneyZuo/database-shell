@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-python3 database.pyc "$@"
+python3 run.pyc "$@"
