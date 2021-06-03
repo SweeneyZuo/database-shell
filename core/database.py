@@ -90,15 +90,16 @@ def parse_args(args):
 def main():
     if platform.system().lower() == 'windows':
         disable_color()
+    command = None
     try:
         opt = parse_args(sys.argv)
         cmd = Cmd.get(opt)
         if cmd:
-            cmd(opt=opt, **params).exe()
+            command = cmd(opt=opt, **params)
+            command.exe()
         else:
             print("Invalid Operation!")
     except Exception as ex:
+        if command:
+            command.write_error_history(ex)
         PRINTER.print_error_msg(ex)
-        import traceback
-
-        traceback.print_exc(chain=ex)

@@ -6,6 +6,8 @@ from enum import Enum
 from cmd.print_cmd import PrintCmd
 from core.core import Query
 
+SP = '\u0000\u0000'
+
 
 class Stat(Enum):
     OK = 'ok'
@@ -22,7 +24,7 @@ class HistoryCmd(PrintCmd):
             fcntl.flock(file_lock.fileno(), fcntl.LOCK_EX)
             with open(file, mode='a+', encoding='UTF-8') as history_file:
                 history_file.write(
-                    f'{datetime.now().strftime("%H:%M:%S")}\0\0{self.opt}\0\0{content}\0\0{stat.value}\n')
+                    f'{datetime.now().strftime("%H:%M:%S")}{SP}{self.opt}{SP}{content}{SP}{stat.value}\n')
             fcntl.flock(file_lock.fileno(), fcntl.LOCK_UN)
 
     def _read_history(self):
@@ -45,7 +47,7 @@ class HistoryCmd(PrintCmd):
 
     def exe(self):
         try:
-            res = [list(map(lambda cell: cell.replace("\n", " "), hs.split('\0\0'))) for hs in self._read_history()]
+            res = [list(map(lambda cell: cell.replace("\n", " "), hs.split(SP))) for hs in self._read_history()]
             self.print_result_set(['time', 'option', 'value', 'stat'], res, Query(None, None, None, fold=self.fold))
             self.__write_history(self.out_format, Stat.OK)
         except Exception as e:
