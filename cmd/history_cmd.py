@@ -20,6 +20,7 @@ class HistoryCmd(PrintCmd):
     def __write_history(self, content, stat):
         proc_home = self.get_proc_home()
         file = os.path.join(proc_home, f'hist/.{datetime.now().date()}_db.history')
+        content = content.strip().replace("\n", " ")
         with open(os.path.join(proc_home, 'config/.db.history.lock'), mode='w+', encoding='UTF-8') as file_lock:
             fcntl.flock(file_lock.fileno(), fcntl.LOCK_EX)
             with open(file, mode='a+', encoding='UTF-8') as history_file:

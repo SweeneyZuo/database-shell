@@ -7,17 +7,35 @@ class DescCmd(SqlCmd):
 
     def get_sqlserver_index_information_dict(self, conn, tab_name, dbo='dbo'):
         index_formation = self._exe_query(
-            f"""SELECT c.name colName,object_name(constraint_object_id) constName,'FK' type,object_name(referenced_object_id) refTabName,c1.name refColName FROM sys.foreign_key_columns f JOIN sys.tables t ON t.object_id=f.parent_object_id JOIN sys.columns c ON c.object_id=f.parent_object_id AND c.column_id=f.parent_column_id JOIN sys.columns c1 ON c1.object_id=f.referenced_object_id AND c1.column_id=f.referenced_column_id JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE t.name='{tab_name}' AND s.name='{dbo}' \
-    UNION ALL SELECT COLUMN_NAME colName,CONSTRAINT_NAME constName,k.type,NULL refTabName,NULL refColName FROM sys.key_constraints k LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE c ON k.name=c.CONSTRAINT_NAME WHERE c.TABLE_SCHEMA='{dbo}' AND c.TABLE_NAME='{tab_name}'""",
+            f"""SELECT c.name colName,object_name(constraint_object_id) constName,'FK' type,object_name(referenced_object_id) refTabName,c1.name refColName 
+                FROM sys.foreign_key_columns f 
+                JOIN sys.tables t ON t.object_id=f.parent_object_id 
+                JOIN sys.columns c ON c.object_id=f.parent_object_id AND c.column_id=f.parent_column_id 
+                JOIN sys.columns c1 ON c1.object_id=f.referenced_object_id AND c1.column_id=f.referenced_column_id 
+                JOIN sys.schemas s ON t.schema_id=s.schema_id WHERE t.name='{tab_name}' AND s.name='{dbo}' 
+                UNION ALL 
+                SELECT COLUMN_NAME colName,CONSTRAINT_NAME constName,k.type,NULL refTabName,NULL refColName 
+                FROM sys.key_constraints k 
+                LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE c ON k.name=c.CONSTRAINT_NAME 
+                WHERE c.TABLE_SCHEMA='{dbo}' AND c.TABLE_NAME='{tab_name}'""",
             conn)[1]
         # {colName:(colName,constName,indexType,refTabName,refColName)}
         return {fmt[0]: fmt for fmt in index_formation[0]} if index_formation else dict(), \
                {fmt[0]: fmt for fmt in index_formation[0] if fmt[2] == 'FK'} if index_formation else dict()
 
     def print_table_description(self, conn, qy: Query):
-        sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT FROM information_schema.columns WHERE table_schema='{qy.database}' AND table_name='{qy.table_name}'"""
+        sql = f"""SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,COLUMN_COMMENT 
+                  FROM information_schema.columns 
+                  WHERE table_schema='{qy.database}' AND table_name='{qy.table_name}'"""
         if qy.server_type is DatabaseType.SQL_SERVER:
-            sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'IDENTITY' ELSE '' END Extra,ISNULL(CONVERT(varchar,ep.value), '') comment FROM dbo.syscolumns col LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME WHERE isc.TABLE_CATALOG='{qy.database}' AND obj.name='{qy.table_name}' ORDER BY col.colorder"""
+            sql = f"""SELECT col.name,t.name dataType,isc.CHARACTER_MAXIMUM_LENGTH,isc.NUMERIC_PRECISION,isc.NUMERIC_SCALE,CASE WHEN col.isnullable=1 THEN 'YES' ELSE 'NO' END nullable,comm.text defVal,CASE WHEN COLUMNPROPERTY(col.id,col.name,'IsIdentity')=1 THEN 'IDENTITY' ELSE '' END Extra,ISNULL(CONVERT(varchar,ep.value), '') comment 
+                      FROM dbo.syscolumns col 
+                      LEFT JOIN dbo.systypes t ON col.xtype=t.xusertype 
+                      JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 
+                      LEFT JOIN dbo.syscomments comm ON col.cdefault=comm.id 
+                      LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id AND ep.name='MS_Description' 
+                      LEFT JOIN information_schema.columns isc ON obj.name=isc.TABLE_NAME AND col.name=isc.COLUMN_NAME 
+                      WHERE isc.TABLE_CATALOG='{qy.database}' AND obj.name='{qy.table_name}' ORDER BY col.colorder"""
         res = self._exe_query(sql, conn)[1]
         if not res or not res[0]:
             self.printer.print_error_msg(f"{qy.table_name} not found!")
@@ -62,8 +80,17 @@ class DescCmd(SqlCmd):
                                       'decimal', 'numeric', 'real', 'money', 'smallmoney'}
 
             res_list = []
-            sql = f"""sp_columns {query.table_name};SELECT TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,ic.IS_NULLABLE,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE,tmp.definition FROM information_schema.columns ic LEFT JOIN (SELECT c.name col,c.definition FROM sys.computed_columns c \
-    JOIN sys.tables t ON c.object_id=t.object_id JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE t.name='{query.table_name}' AND s.name='dbo') tmp ON ic.COLUMN_NAME=tmp.col WHERE ic.TABLE_NAME='{query.table_name}' AND ic.TABLE_SCHEMA='dbo'"""
+            sql = f"""sp_columns {query.table_name};
+                      SELECT TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,ic.IS_NULLABLE,DATA_TYPE,CHARACTER_MAXIMUM_LENGTH,NUMERIC_PRECISION,NUMERIC_SCALE,tmp.definition 
+                      FROM information_schema.columns ic 
+                      LEFT JOIN (
+                           SELECT c.name col,c.definition 
+                           FROM sys.computed_columns c 
+                           JOIN sys.tables t ON c.object_id=t.object_id 
+                           JOIN sys.schemas s ON s.schema_id=t.schema_id 
+                           WHERE t.name='{query.table_name}' AND s.name='dbo'
+                              ) tmp ON ic.COLUMN_NAME=tmp.col 
+                      WHERE ic.TABLE_NAME='{query.table_name}' AND ic.TABLE_SCHEMA='dbo'"""
             effect_rows, description, res, success = self._exe_no_query(sql, conn)
             if not res or not res[0]:
                 self.printer.print_error_msg(f"{query.table_name} not found!")
@@ -111,8 +138,16 @@ class DescCmd(SqlCmd):
                     res_list.append(",\n")
             res_list.append(");")
             comment = self._exe_query(
-                f"""(SELECT col.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id FROM dbo.syscolumns col JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id \
-                 WHERE obj.name='{query.table_name}' AND ep.value is not NULL) union (select obj.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id from dbo.sysobjects obj join sys.extended_properties ep on obj.id=ep.major_id where ep.minor_id=0 and obj.xtype='U' AND obj.status>=0 AND obj.name='{query.table_name}')""",
+                f"""SELECT col.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id 
+                     FROM dbo.syscolumns col 
+                     JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 
+                     LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id
+                     WHERE obj.name='{query.table_name}' AND ep.value is NOT NULL
+                     UNION ALL 
+                     SELECT obj.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id 
+                     FROM dbo.sysobjects obj 
+                     JOIN sys.extended_properties ep on obj.id=ep.major_id 
+                     WHERE ep.minor_id=0 AND obj.xtype='U' AND obj.status>=0 AND obj.name='{query.table_name}'""",
                 conn)[1]
             if comment:
                 for com in comment[0]:
