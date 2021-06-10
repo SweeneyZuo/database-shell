@@ -69,38 +69,40 @@ class PrintCmd(Cmd):
     def fold(self):
         return self.params['fold']
 
-    def deal_human(self, rows):
-        def can_human(field_name):
-            return 'time' in field_name
-
-        human_time_cols = set(i for i in range(len(rows[0])) if can_human(str(rows[0][i]).lower()))
-        for rdx, row in enumerate(rows):
-            if rdx == 0:
-                continue
-            for cdx, ele in enumerate(row):
-                if cdx in human_time_cols and isinstance(ele, int):
-                    # 注意：时间戳被当成毫秒级时间戳处理，秒级时间戳格式化完是错误的时间
-                    rows[rdx][cdx] = (datetime(1970, 1, 1) + timedelta(milliseconds=ele)).strftime("%Y-%m-%d %H:%M:%S")
-        return rows
-
     def before_print(self, header, res, query):
         """
             需要注意不能改变原本数据的类型，除了需要替换成其它数据的情况
         """
         if res is None:
             return []
-        if query.limit_rows:
-            res = res[query.limit_rows[0]:query.limit_rows[1]]
-        res = [row if isinstance(row, list) else list(row) for row in res]
-        res.insert(0, header if isinstance(header, list) else list(header))
-        res = [[line[i] for i in query.columns] for line in res] if query.columns else res
-        deal_res(res)
-        res = self.deal_human(res) if query.human else res
+        new_res = []
         fold_limit = self.params['fold_limit']
         fold_str, end_pos = self.params['print_conf'].fold_replace_str_with_color, fold_limit - 3
-        res = [[e if len(str(e)) < fold_limit else
-                f'{str(e)[:end_pos]}{fold_str}' for e in row] for row in res] if query.fold else res
-        return res.pop(0), res
+        header = header if isinstance(header, list) else list(header)
+        header = [header[i] for i in query.columns] if query.columns else header
+        human_time_cols = set(
+            i for i in range(len(header)) if 'time' in str(header[i]).lower()) if query.human else set()
+        for rdx, row in enumerate(res):
+            if query.limit_rows and (query.limit_rows[0] > rdx or rdx >= query.limit_rows[1]):
+                continue
+            row = row if isinstance(row, list) else list(row)
+            row = [row[i] for i in query.columns] if query.columns else row
+            for cdx, e in enumerate(row):
+                if isinstance(e, (bytearray, bytes)):
+                    try:
+                        e = str(e, 'utf8')
+                    except Exception:
+                        e = pu.HexObj(e.hex())
+                elif isinstance(e, bool):
+                    e = 1 if e else 0
+                if isinstance(e, int) and cdx in human_time_cols:
+                    # 注意：时间戳被当成毫秒级时间戳处理，秒级时间戳格式化完是错误的时间
+                    e = (datetime(1970, 1, 1) + timedelta(milliseconds=e)).strftime("%Y-%m-%d %H:%M:%S")
+                if query.fold and len(str(e)) > fold_limit:
+                    e = f'{str(e)[:end_pos]}{fold_str}'
+                row[cdx] = e
+            new_res.append(row)
+        return header, new_res
 
     def print_result_set(self, header, res, query, res_index=0):
         if not header:

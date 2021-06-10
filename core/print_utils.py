@@ -179,26 +179,31 @@ def _calc_char_width(char):
     return 1
 
 
-def _str_width(any_str, pc: PrintConf):
-    if any_str == pc.null_str_with_color:
-        return pc.null_str_with_color_len
-    ln = -pc.fold_color_len if any_str.endswith(pc.fold_replace_str_with_color) else 0
-    for char in any_str:
-        ln += _calc_char_width(char)
-    return ln
+def _str_width(pc: PrintConf):
+    def _inner_calc_width(any_str):
+        if any_str == pc.null_str_with_color:
+            return pc.null_str_with_color_len
+        ln = -pc.fold_color_len if any_str.endswith(pc.fold_replace_str_with_color) else 0
+        for char in any_str:
+            ln += _calc_char_width(char)
+        return ln
+
+    return _inner_calc_width
 
 
-def _get_max_length_each_fields(rows, pc: PrintConf):
+def _get_max_length_each_fields(rows, before_calc_width, pc: PrintConf):
     length_head = len(rows[0]) * [0]
+    calc_width_func = _str_width(pc)
     for row in rows:
         for cdx, e in enumerate(row):
-            row[cdx] = (e, _str_width(e, pc))
+            e = before_calc_width(e)
+            row[cdx] = (e, calc_width_func(e))
             length_head[cdx] = max(row[cdx][1], length_head[cdx])
     return length_head
 
 
-def _table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_char='|'):
-    def _table_row_str_lazy():
+def _table_row_str(head_length, align_list, color=Color.NO_COLOR, split_char='|'):
+    def _table_row_str_lazy(row):
         end_str = f' {split_char} '
         yield f'{split_char} '
         for e, width, align_type in zip(row, head_length, align_list):
@@ -216,7 +221,7 @@ def _table_row_str(row, head_length, align_list, color=Color.NO_COLOR, split_cha
                 yield ' ' * (space_num - half_space_num)
             yield end_str
 
-    return ''.join(_table_row_str_lazy())
+    return _table_row_str_lazy
 
 
 def _default_after_print_row(row_num, row_total_num, max_row_length, table_width, pc: PrintConf, mp: MsgPrinter):
@@ -229,25 +234,28 @@ def print_table(header, res, pc: PrintConf, mp: MsgPrinter,
                 after_print_row_func=_default_after_print_row,
                 end_func=lambda table_width, total, mp: mp.print_info_msg(f'Total Records: {total}')):
     def _deal_res(_res, _align_list):
+        length_head = len(_res[0]) * [0]
+        calc_width_func = _str_width(pc)
         for _row in _res:
             for cdx, e in enumerate(_row):
                 if isinstance(e, str):
-                    _row[cdx] = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
+                    e = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
                         .replace('\0', '\\0').replace('\b', '\\b')
                 elif isinstance(e, (int, float)):
                     # 数字采用右对齐
-                    _align_list[cdx], _row[cdx] = Align.ALIGN_RIGHT, str(e)
+                    _align_list[cdx], e = Align.ALIGN_RIGHT, str(e)
                 elif e is None:
-                    _row[cdx] = pc.null_str_with_color
+                    e = pc.null_str_with_color
                 else:
-                    _row[cdx] = str(e)
-        return _res, _align_list
+                    e = str(e)
+                _row[cdx] = (e, calc_width_func(e))
+                length_head[cdx] = max(_row[cdx][1], length_head[cdx])
+        return _res, _align_list, length_head
 
     row_total_num, col_total_num = len(res), len(header)
     res.insert(0, header)
     default_align = col_total_num * [Align.ALIGN_LEFT]
-    res, align_list = _deal_res(res, default_align.copy())
-    max_length_each_fields = _get_max_length_each_fields(res, pc)
+    res, align_list, max_length_each_fields = _deal_res(res, default_align.copy())
     header = res.pop(0)
     # 数据的总长度
     max_row_length = sum(max_length_each_fields)
@@ -255,19 +263,21 @@ def print_table(header, res, pc: PrintConf, mp: MsgPrinter,
     table_width = 1 + max_row_length + 3 * col_total_num
     space_list_down = [(pc.split_row_char * i, i) for i in max_length_each_fields]
     start_func(table_width, mp)
+    print_data_func = _table_row_str(max_length_each_fields, align_list, pc.data_color)
     # 打印表格的上顶线
-    mp.output(_table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
+    s_line = ''.join(_table_row_str(max_length_each_fields, default_align, Color.NO_COLOR, '+')(space_list_down))
+    mp.output(s_line)
     # 打印HEADER部分，和数据的对其方式保持一致
-    mp.output(_table_row_str(header, max_length_each_fields, align_list, pc.table_head_color))
+    mp.output(''.join(_table_row_str(max_length_each_fields, align_list, pc.table_head_color)(header)))
     # 打印HEADER和DATA之间的分割线
-    mp.output(_table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
+    mp.output(s_line)
     for row_num, row in enumerate(res):
         # 打印DATA部分
-        mp.output(_table_row_str(row, max_length_each_fields, align_list, pc.data_color))
+        mp.output(''.join(print_data_func(row)))
         after_print_row_func(row_num, row_total_num, max_row_length, table_width, pc, mp)
     if res:
         # 有数据时，打印表格的下底线
-        mp.output(_table_row_str(space_list_down, max_length_each_fields, default_align, Color.NO_COLOR, '+'))
+        mp.output(s_line)
     end_func(table_width, row_total_num, mp)
 
 
@@ -280,11 +290,11 @@ def _deal_html_elem(e):
 
 def print_markdown(header, res, pc, mp):
     res.insert(0, header)
-    res = [[_deal_html_elem(e) for e in row] for row in res]
-    max_length_each_fields, align_list = _get_max_length_each_fields(res, pc), len(header) * [Align.ALIGN_LEFT]
+    max_length_each_fields = _get_max_length_each_fields(res, _deal_html_elem, pc)
     res.insert(1, map(lambda l: ('-' * l, l), max_length_each_fields))
+    print_row_func = _table_row_str(max_length_each_fields, len(header) * [Align.ALIGN_LEFT], Color.NO_COLOR)
     for row in res:
-        mp.output(_table_row_str(row, max_length_each_fields, align_list, Color.NO_COLOR))
+        mp.output(''.join(print_row_func(row)))
 
 
 def print_insert_sql(header, res, tab_name, server_type: DatabaseType, mp):

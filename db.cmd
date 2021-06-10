@@ -1,1 +1,1 @@
-python.exe database.py %*
+python.exe run.py %*
