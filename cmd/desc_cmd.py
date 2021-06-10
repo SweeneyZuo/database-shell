@@ -40,7 +40,7 @@ class DescCmd(SqlCmd):
         if not res or not res[0]:
             self.printer.print_error_msg(f"{qy.table_name} not found!")
             return
-        res = list(map(lambda r: list(r), res[0]))
+        res = [list(r) for r in res[0]]
         if qy.server_type is DatabaseType.SQL_SERVER:
             index_dict, foreign_dict = self.get_sqlserver_index_information_dict(conn, qy.table_name)
             for row in res:
@@ -117,12 +117,9 @@ class DescCmd(SqlCmd):
                     elif data_type in ('decimal', 'numeric'):
                         res_list.append(f"({row[6]},{row[7]})")
                     if row2[5].endswith("identity"):
-                        id_seed, id_incr = \
-                            self._exe_no_query(
-                                f"SELECT IDENT_SEED('{query.table_name}'),IDENT_INCR('{query.table_name}')",
-                                conn)[
-                                2][
-                                0][0]
+                        id_seed, id_incr = self._exe_no_query(
+                            f"SELECT IDENT_SEED('{query.table_name}'),IDENT_INCR('{query.table_name}')",
+                            conn)[2][0][0]
                         res_list.append(f" IDENTITY({id_seed},{id_incr})")
                     if row2[12] is not None:
                         res_list.append(f" DEFAULT {row2[12]}")
@@ -139,15 +136,15 @@ class DescCmd(SqlCmd):
             res_list.append(");")
             comment = self._exe_query(
                 f"""SELECT col.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id 
-                     FROM dbo.syscolumns col 
-                     JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 
-                     LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id
-                     WHERE obj.name='{query.table_name}' AND ep.value is NOT NULL
-                     UNION ALL 
-                     SELECT obj.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id 
-                     FROM dbo.sysobjects obj 
-                     JOIN sys.extended_properties ep on obj.id=ep.major_id 
-                     WHERE ep.minor_id=0 AND obj.xtype='U' AND obj.status>=0 AND obj.name='{query.table_name}'""",
+                    FROM dbo.syscolumns col 
+                    JOIN dbo.sysobjects obj ON col.id=obj.id AND obj.xtype='U' AND obj.status>=0 
+                    LEFT JOIN sys.extended_properties ep ON col.id=ep.major_id AND col.colid=ep.minor_id
+                    WHERE obj.name='{query.table_name}' AND ep.value is NOT NULL
+                    UNION ALL 
+                    SELECT obj.name,CONVERT(varchar,ep.value),ep.name comment,CONVERT(varchar,SQL_VARIANT_PROPERTY(ep.value,'BaseType')) type,ep.minor_id 
+                    FROM dbo.sysobjects obj 
+                    JOIN sys.extended_properties ep on obj.id=ep.major_id 
+                    WHERE ep.minor_id=0 AND obj.xtype='U' AND obj.status>=0 AND obj.name='{query.table_name}'""",
                 conn)[1]
             if comment:
                 for com in comment[0]:

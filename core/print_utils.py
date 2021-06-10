@@ -233,29 +233,29 @@ def print_table(header, res, pc: PrintConf, mp: MsgPrinter,
                 start_func=lambda table_width, mp: mp.print_info_msg('Result Sets:'),
                 after_print_row_func=_default_after_print_row,
                 end_func=lambda table_width, total, mp: mp.print_info_msg(f'Total Records: {total}')):
-    def _deal_res(_res, _align_list):
-        length_head = len(_res[0]) * [0]
+    def _deal_res():
         calc_width_func = _str_width(pc)
-        for _row in _res:
+        for _row in res:
             for cdx, e in enumerate(_row):
                 if isinstance(e, str):
                     e = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
                         .replace('\0', '\\0').replace('\b', '\\b')
                 elif isinstance(e, (int, float)):
                     # 数字采用右对齐
-                    _align_list[cdx], e = Align.ALIGN_RIGHT, str(e)
+                    align_list[cdx], e = Align.ALIGN_RIGHT, str(e)
                 elif e is None:
                     e = pc.null_str_with_color
                 else:
                     e = str(e)
                 _row[cdx] = (e, calc_width_func(e))
-                length_head[cdx] = max(_row[cdx][1], length_head[cdx])
-        return _res, _align_list, length_head
+                max_length_each_fields[cdx] = max(_row[cdx][1], max_length_each_fields[cdx])
 
     row_total_num, col_total_num = len(res), len(header)
     res.insert(0, header)
+    max_length_each_fields = col_total_num * [0]
     default_align = col_total_num * [Align.ALIGN_LEFT]
-    res, align_list, max_length_each_fields = _deal_res(res, default_align.copy())
+    align_list = default_align.copy()
+    _deal_res()
     header = res.pop(0)
     # 数据的总长度
     max_row_length = sum(max_length_each_fields)
@@ -275,7 +275,7 @@ def print_table(header, res, pc: PrintConf, mp: MsgPrinter,
         # 打印DATA部分
         mp.output(''.join(print_data_func(row)))
         after_print_row_func(row_num, row_total_num, max_row_length, table_width, pc, mp)
-    if res:
+    if row_total_num > 0:
         # 有数据时，打印表格的下底线
         mp.output(s_line)
     end_func(table_width, row_total_num, mp)
@@ -386,6 +386,6 @@ def print_csv(header, res, mp, split_char=','):
         for data in row:
             print_data = "" if data is None else str(data)
             if split_char in print_data or '\n' in print_data or '\r' in print_data:
-                print_data = '"{}"'.format(print_data.replace('"', '""'))
+                print_data = f'''"{print_data.replace('"', '""')}"'''
             new_row.append(print_data)
         mp.output(split_char.join(new_row))
