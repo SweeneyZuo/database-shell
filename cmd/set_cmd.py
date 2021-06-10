@@ -23,6 +23,8 @@ class SetCmd(ConfCmd):
                 set_conf_value = info_obj[conf_key]
                 if conf_key == 'env':
                     _read_info['use']['env'] = set_conf_value
+                    if set_conf_value not in _read_info['conf'].keys():
+                        _read_info['conf'][set_conf_value], _read_info['use']['conf'] = {}, ConfCmd.DEFAULT_CONF
                     if opt is Opt.UPDATE:
                         self.printer.print_info_msg(f"Set env={set_conf_value} OK.")
                     continue
@@ -30,7 +32,7 @@ class SetCmd(ConfCmd):
                     if set_conf_value in _read_info['conf'][_read_info['use']['env']].keys():
                         if opt is Opt.UPDATE:
                             _read_info['use']['conf'] = set_conf_value
-                            self.printer.print_info_msg(f"set conf={set_conf_value} ok.")
+                            self.printer.print_info_msg(f"set conf={set_conf_value} OK.")
                     elif opt is Opt.UPDATE:
                         i = input("Add Configuration: {}? \nY/N:".format(set_conf_value)).lower()
                         if i in ('y', 'yes'):
@@ -39,7 +41,10 @@ class SetCmd(ConfCmd):
                             self.printer.print_info_msg(
                                 f'Add "{set_conf_value}" conf in env={_read_info["use"]["env"]}')
                     continue
-                elif conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
+                if _read_info['use']['conf'] == ConfCmd.DEFAULT_CONF:
+                    self.printer.print_error_msg('Please Set conf!')
+                    continue
+                if conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
                     self.printer.print_error_msg(f'Server Type: "{set_conf_value}" Not Supported!')
                     continue
                 elif conf_key == 'autocommit':
@@ -52,8 +57,8 @@ class SetCmd(ConfCmd):
                         self.printer.print_error_msg(f'Set port={set_conf_value} Failed!')
                         continue
                     set_conf_value = int(set_conf_value)
-                    self.printer.print_info_msg(f"Set {set_conf_value}={set_conf_value} OK.")
                 _read_info['conf'][_read_info['use']['env']][_read_info['use']['conf']][conf_key] = set_conf_value
+                self.printer.print_info_msg(f"Set {conf_key}={set_conf_value} OK.")
         return _read_info
 
     def exe(self):
