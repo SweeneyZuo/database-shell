@@ -27,6 +27,7 @@ def disable_color():
     PRINT_CONF.disable_color()
     PRINTER.disable_info_color()
     PRINTER.disable_warn_color()
+    PRINTER.disable_error_color()
 
 
 def error_param_exit(param):

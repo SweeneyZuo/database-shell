@@ -1,39 +1,32 @@
 import fcntl
 import os
-from enum import Enum
 
 from cmd.conf_cmd import ConfCmd
 from core.core import DatabaseType
 
 
-class Opt(Enum):
-    UPDATE = 'update'
-    WRITE = 'write'
-    READ = 'read'
-
-
 class SetCmd(ConfCmd):
     name = 'set'
 
-    def parse_info_obj(self, _read_info, info_obj, opt=Opt.READ):
-        if info_obj:
-            for conf_key in ConfCmd.CONFIG:
-                if conf_key not in info_obj.keys():
+    def set_info(self, _read_info, set_info_obj):
+        if set_info_obj:
+            for conf_key in set_info_obj.keys():
+                if conf_key not in ConfCmd.CONFIG:
+                    self.printer.print_error_msg(f'Invalid Key "{conf_key}"!')
                     continue
-                set_conf_value = info_obj[conf_key]
+                set_conf_value = set_info_obj[conf_key]
                 if conf_key == 'env':
                     _read_info['use']['env'] = set_conf_value
                     if set_conf_value not in _read_info['conf'].keys():
-                        _read_info['conf'][set_conf_value], _read_info['use']['conf'] = {}, ConfCmd.DEFAULT_CONF
-                    if opt is Opt.UPDATE:
-                        self.printer.print_info_msg(f"Set env={set_conf_value} OK.")
+                        _read_info['conf'][set_conf_value] = {}
+                    _read_info['use']['conf'] = ConfCmd.DEFAULT_CONF
+                    self.printer.print_info_msg(f"Set env={set_conf_value} OK.")
                     continue
                 elif conf_key == 'conf':
                     if set_conf_value in _read_info['conf'][_read_info['use']['env']].keys():
-                        if opt is Opt.UPDATE:
-                            _read_info['use']['conf'] = set_conf_value
-                            self.printer.print_info_msg(f"set conf={set_conf_value} OK.")
-                    elif opt is Opt.UPDATE:
+                        _read_info['use']['conf'] = set_conf_value
+                        self.printer.print_info_msg(f"set conf={set_conf_value} OK.")
+                    else:
                         i = input("Add Configuration: {}? \nY/N:".format(set_conf_value)).lower()
                         if i in ('y', 'yes'):
                             _read_info['use']['conf'] = set_conf_value
@@ -63,7 +56,11 @@ class SetCmd(ConfCmd):
 
     def exe(self):
         kv = self.params['option_val']
-        info_obj = {}
+        if '=' not in kv:
+            self.printer.print_error_msg(f'Invalid Params "{kv}"!')
+            self.write_error_history(kv)
+            return
+        set_info_obj = {}
         try:
             with open(os.path.join(self.get_proc_home(), 'config/.db.lock'), 'w') as lock:
                 try:
@@ -77,8 +74,8 @@ class SetCmd(ConfCmd):
                     self.write_error_history(kv)
                     return
                 kv_pair = kv.split('=', 1)
-                info_obj[kv_pair[0].lower()] = kv_pair[1]
-                self._write_info(self.parse_info_obj(self._read_info(), info_obj, Opt.UPDATE))
+                set_info_obj[kv_pair[0].lower()] = kv_pair[1]
+                self._write_info(self.set_info(self._read_info(), set_info_obj))
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 self.write_ok_history(kv)
         except Exception as be:

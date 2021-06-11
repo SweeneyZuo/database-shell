@@ -85,7 +85,7 @@ class PrintCmd(Cmd):
         for rdx, row in enumerate(res):
             if query.limit_rows and (query.limit_rows[0] > rdx or rdx >= query.limit_rows[1]):
                 continue
-            row = row if isinstance(row, list) else list(row)
+            row = row if isinstance(row, list) or query.columns else list(row)
             row = [row[i] for i in query.columns] if query.columns else row
             for cdx, e in enumerate(row):
                 if isinstance(e, (bytearray, bytes)):
@@ -95,19 +95,17 @@ class PrintCmd(Cmd):
                         e = pu.HexObj(e.hex())
                 elif isinstance(e, bool):
                     e = 1 if e else 0
-                if isinstance(e, int) and cdx in human_time_cols:
+                elif isinstance(e, int) and cdx in human_time_cols:
                     # 注意：时间戳被当成毫秒级时间戳处理，秒级时间戳格式化完是错误的时间
                     e = (datetime(1970, 1, 1) + timedelta(milliseconds=e)).strftime("%Y-%m-%d %H:%M:%S")
-                if query.fold and len(str(e)) > fold_limit:
-                    e = f'{str(e)[:end_pos]}{fold_str}'
+                if query.fold:
+                    str_e = str(e)
+                    e = f'{str_e[:end_pos]}{fold_str}' if len(str_e) > fold_limit else e
                 row[cdx] = e
             new_res.append(row)
         return header, new_res
 
     def print_result_set(self, header, res, query, res_index=0):
-        if not header:
-            return
-
         mp, pc, out_format = self.printer, self.params['print_conf'], self.out_format
         if not res and out_format == 'table':
             mp.print_warn_msg('Empty Sets!')
