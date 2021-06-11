@@ -13,7 +13,7 @@ class SetCmd(ConfCmd):
             for conf_key in set_info_obj.keys():
                 if conf_key not in ConfCmd.CONFIG:
                     self.printer.print_error_msg(f'Invalid Key "{conf_key}"!')
-                    continue
+                    return False
                 set_conf_value = set_info_obj[conf_key]
                 if conf_key == 'env':
                     _read_info['use']['env'] = set_conf_value
@@ -36,23 +36,23 @@ class SetCmd(ConfCmd):
                     continue
                 if _read_info['use']['conf'] == ConfCmd.DEFAULT_CONF:
                     self.printer.print_error_msg('Please Set conf!')
-                    continue
+                    return False
                 if conf_key == 'servertype' and not DatabaseType.support(set_conf_value):
                     self.printer.print_error_msg(f'Server Type: "{set_conf_value}" Not Supported!')
-                    continue
+                    return False
                 elif conf_key == 'autocommit':
                     if set_conf_value.lower() not in {'true', 'false'}:
                         self.printer.print_error_msg(f'"{set_conf_value}" Incorrect Parameters!')
-                        continue
+                        return False
                     set_conf_value = set_conf_value.lower() == 'true'
                 elif conf_key == 'port':
                     if not set_conf_value.isdigit():
                         self.printer.print_error_msg(f'Set port={set_conf_value} Failed!')
-                        continue
+                        return False
                     set_conf_value = int(set_conf_value)
                 _read_info['conf'][_read_info['use']['env']][_read_info['use']['conf']][conf_key] = set_conf_value
                 self.printer.print_info_msg(f"Set {conf_key}={set_conf_value} OK.")
-        return _read_info
+        return True
 
     def exe(self):
         kv = self.params['option_val']
@@ -75,9 +75,13 @@ class SetCmd(ConfCmd):
                     return
                 kv_pair = kv.split('=', 1)
                 set_info_obj[kv_pair[0].lower()] = kv_pair[1]
-                self._write_info(self.set_info(self._read_info(), set_info_obj))
+                read_info = self._read_info()
+                if self.set_info(read_info, set_info_obj):
+                    self._write_info(read_info)
+                    self.write_ok_history(kv)
+                else:
+                    self.write_error_history(kv)
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-                self.write_ok_history(kv)
         except Exception as be:
             self.write_error_history(kv)
             self.printer.print_error_msg(be)
