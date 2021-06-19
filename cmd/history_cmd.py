@@ -49,7 +49,8 @@ class HistoryCmd(PrintCmd):
     def exe(self):
         try:
             res = [list(map(lambda cell: cell.replace("\n", ""), hs.split(SP))) for hs in self._read_history()]
-            self.print_result_set(['time', 'option', 'value', 'stat'], res, Query(None, None, None, fold=self.fold))
+            self.print_result_set(['time', 'option', 'value', 'stat'], res,
+                                  Query(None, None, None, fold=self.fold, human=self.human))
             self.__write_history(self.out_format, Stat.OK)
         except Exception as e:
             self.__write_history(self.out_format, Stat.ERROR)

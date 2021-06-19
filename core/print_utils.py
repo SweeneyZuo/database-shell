@@ -320,10 +320,11 @@ def print_insert_sql(header, res, tab_name, server_type: DatabaseType, mp):
             mp.output(f"""{insert_prefix} ({','.join(_case_for_sql(row))});""")
 
 
-def print_json(header, res, mp):
+def print_json(header, res, mp, human=False):
+    indent = 2 if human else None
     for row in res:
         row = map(lambda e: e if isinstance(e, (str, int, float, list, dict, bool)) or e is None else str(e), row)
-        mp.output(json.dumps({k: v for (k, v) in zip(header, row) if v}, indent=2, ensure_ascii=False))
+        mp.output(json.dumps({k: v for (k, v) in zip(header, row) if v}, indent=indent, ensure_ascii=False))
 
 
 def print_config(path, mp):
@@ -371,8 +372,8 @@ def print_html4(header, res, mp):
     mp.output("</tbody>\n</table>")
 
 
-def print_xml(hd, res, mp):
-    end, d = '\n', " " * 4
+def print_xml(hd, res, mp, human=False):
+    end, d = ('\n', " " * 4) if human else ('', '')
     record_template = f'<RECORD>{end}{{}}{end}</RECORD>'
     for row in res:
         mp.output(record_template.format(

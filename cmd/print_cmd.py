@@ -117,7 +117,7 @@ class PrintCmd(Cmd):
             pu.print_insert_sql(header, res, query.table_name if query.table_name else get_tab_name_from_sql(query.sql),
                                 query.server_type, mp)
         elif out_format == 'json':
-            pu.print_json(header, res, mp)
+            pu.print_json(header, res, mp, query.human)
         elif out_format == 'html':
             pu.print_html(header, res, mp)
         elif out_format == 'html2':
@@ -129,7 +129,7 @@ class PrintCmd(Cmd):
         elif out_format == 'markdown':
             pu.print_markdown(header, res, pc, mp)
         elif out_format == 'xml':
-            pu.print_xml(header, res, mp)
+            pu.print_xml(header, res, mp, query.human)
         elif out_format == 'csv':
             pu.print_csv(header, res, mp)
         elif out_format == 'text':
