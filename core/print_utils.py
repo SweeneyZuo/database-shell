@@ -207,7 +207,7 @@ def _table_row_str(head_length, align_list, color=Color.NO_COLOR, split_char='|'
         end_str = f' {split_char} '
         yield f'{split_char} '
         for e, width, align_type in zip(row, head_length, align_list):
-            space_num = abs(e[1] - width)
+            space_num = width - e[1]
             if space_num == 0:
                 yield color.wrap(e[0])
             elif align_type == Align.ALIGN_RIGHT:
