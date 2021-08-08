@@ -97,6 +97,7 @@ class DescCmd(SqlCmd):
                 return
             header2, res1 = self.before_print(self._get_table_head_from_description(description[1]), res[1], query)
             header, res2 = self.before_print(self._get_table_head_from_description(description[0]), res[0], query)
+            res1, res2 = [list(i) for i in res1], [list(i) for i in res2]
             index_dict, foreign_dict = self.get_sqlserver_index_information_dict(conn, query.table_name)
             primary_key, mul_unique = [], {}
             for k, v in index_dict.items():

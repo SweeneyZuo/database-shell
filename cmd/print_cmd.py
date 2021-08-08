@@ -73,21 +73,12 @@ class PrintCmd(Cmd):
         """
             需要注意不能改变原本数据的类型，除了需要替换成其它数据的情况
         """
-        if res is None:
-            return []
-        new_res = []
-        fold_limit = self.params['fold_limit']
-        fold_str, end_pos = self.params['print_conf'].fold_replace_str_with_color, fold_limit - 3
-        header = header if isinstance(header, list) else list(header)
-        header = [header[i] for i in query.columns] if query.columns else header
-        human_time_cols = set(
-            i for i in range(len(header)) if 'time' in str(header[i]).lower()) if query.human else set()
-        for rdx, row in enumerate(res):
-            if query.limit_rows and (query.limit_rows[0] > rdx or rdx >= query.limit_rows[1]):
-                continue
-            row = row if isinstance(row, list) or query.columns else list(row)
-            row = [row[i] for i in query.columns] if query.columns else row
-            for cdx, e in enumerate(row):
+
+        def row_gen(columns_index_list, row_data):
+            iter_obj = columns_index_list if columns_index_list else row_data
+            is_index = columns_index_list is not None
+            for cdx, obj in enumerate(iter_obj):
+                e = row_data[obj] if is_index else obj
                 if isinstance(e, (bytearray, bytes)):
                     try:
                         e = str(e, 'utf8')
@@ -101,9 +92,21 @@ class PrintCmd(Cmd):
                 if query.fold:
                     str_e = str(e)
                     e = f'{str_e[:end_pos]}{fold_str}' if len(str_e) > fold_limit else e
-                row[cdx] = e
-            new_res.append(row)
-        return header, new_res
+                yield e
+
+        def res_gen():
+            for rdx, row in enumerate(res):
+                if query.limit_rows and (query.limit_rows[0] > rdx or rdx >= query.limit_rows[1]):
+                    continue
+                yield row_gen(query.columns, row)
+
+        fold_limit = self.params['fold_limit']
+        fold_str, end_pos = self.params['print_conf'].fold_replace_str_with_color, fold_limit - 3
+        header = header if isinstance(header, list) else list(header)
+        header = [header[i] for i in query.columns] if query.columns else header
+        human_time_cols = set(
+            i for i in range(len(header)) if 'time' in str(header[i]).lower()) if query.human else set()
+        return header, res_gen()
 
     def print_result_set(self, header, res, query, res_index=0):
         mp, pc, out_format = self.printer, self.params['print_conf'], self.out_format

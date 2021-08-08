@@ -1,3 +1,4 @@
+import itertools
 import os
 import sys
 import html
@@ -191,17 +192,6 @@ def _str_width(pc: PrintConf):
     return _inner_calc_width
 
 
-def _get_max_length_each_fields(rows, before_calc_width, pc: PrintConf):
-    length_head = len(rows[0]) * [0]
-    calc_width_func = _str_width(pc)
-    for row in rows:
-        for cdx, e in enumerate(row):
-            e = before_calc_width(e)
-            row[cdx] = (e, calc_width_func(e))
-            length_head[cdx] = max(row[cdx][1], length_head[cdx])
-    return length_head
-
-
 def _table_row_str(head_length, align_list, color=Color.NO_COLOR, split_char='|'):
     def _table_row_str_lazy(row):
         end_str = f' {split_char} '
@@ -233,51 +223,48 @@ def print_table(header, res, pc: PrintConf, mp: MsgPrinter,
                 start_func=lambda table_width, mp: mp.print_info_msg('Result Sets:'),
                 after_print_row_func=_default_after_print_row,
                 end_func=lambda table_width, total, mp: mp.print_info_msg(f'Total Records: {total}')):
-    def _deal_res():
-        calc_width_func = _str_width(pc)
-        for _row in res:
-            for cdx, e in enumerate(_row):
-                if isinstance(e, str):
-                    e = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
-                        .replace('\0', '\\0').replace('\b', '\\b')
-                elif isinstance(e, (int, float)):
-                    # 数字采用右对齐
-                    align_list[cdx], e = Align.ALIGN_RIGHT, str(e)
-                elif e is None:
-                    e = pc.null_str_with_color
-                else:
-                    e = str(e)
-                _row[cdx] = (e, calc_width_func(e))
-                max_length_each_fields[cdx] = max(_row[cdx][1], max_length_each_fields[cdx])
+    def e_func(e, cdx):
+        if isinstance(e, str):
+            e = e.replace('\r', '\\r').replace('\n', '\\n').replace('\t', '\\t') \
+                .replace('\0', '\\0').replace('\b', '\\b')
+        elif isinstance(e, (int, float)):
+            # 数字采用右对齐
+            align_list[cdx], e = Align.ALIGN_RIGHT, str(e)
+        elif e is None:
+            e = pc.null_str_with_color
+        else:
+            e = str(e)
+        return e
 
-    row_total_num, col_total_num = len(res), len(header)
-    res.insert(0, header)
-    max_length_each_fields = col_total_num * [0]
+    col_total_num = len(header)
+    width_list = col_total_num * [0]
     default_align = col_total_num * [Align.ALIGN_LEFT]
     align_list = default_align.copy()
-    _deal_res()
-    header = res.pop(0)
+    calc_width_func = _str_width(pc)
+    res = [set_width_for_row(row, width_list, calc_width_func, e_func) for row in res]
+    header = set_width_for_row(header, width_list, calc_width_func, e_func)
+    row_total_num = len(res)
     # 数据的总长度
-    max_row_length = sum(max_length_each_fields)
+    max_row_length = sum(width_list)
     # 表格的宽度(数据长度加上分割线)
     table_width = 1 + max_row_length + 3 * col_total_num
-    space_list_down = [(pc.split_row_char * i, i) for i in max_length_each_fields]
+    space_list_down = [(pc.split_row_char * i, i) for i in width_list]
     start_func(table_width, mp)
-    print_data_func = _table_row_str(max_length_each_fields, align_list, pc.data_color)
     # 打印表格的上顶线
-    s_line = ''.join(_table_row_str(max_length_each_fields, default_align, Color.NO_COLOR, '+')(space_list_down))
-    mp.output(s_line)
+    bottom_line = ''.join(_table_row_str(width_list, default_align, Color.NO_COLOR, '+')(space_list_down))
+    mp.output(bottom_line)
     # 打印HEADER部分，和数据的对其方式保持一致
-    mp.output(''.join(_table_row_str(max_length_each_fields, align_list, pc.table_head_color)(header)))
+    mp.output(''.join(_table_row_str(width_list, align_list, pc.table_head_color)(header)))
     # 打印HEADER和DATA之间的分割线
-    mp.output(s_line)
+    mp.output(bottom_line)
+    print_data_func = _table_row_str(width_list, align_list, pc.data_color)
     for row_num, row in enumerate(res):
         # 打印DATA部分
         mp.output(''.join(print_data_func(row)))
         after_print_row_func(row_num, row_total_num, max_row_length, table_width, pc, mp)
     if row_total_num > 0:
         # 有数据时，打印表格的下底线
-        mp.output(s_line)
+        mp.output(bottom_line)
     end_func(table_width, row_total_num, mp)
 
 
@@ -288,18 +275,31 @@ def _deal_html_elem(e):
         .replace('\n', '<br>').replace('\t', '&ensp;' * 4) if isinstance(e, str) else str(e)
 
 
+def set_width_for_row(row, width_list, calc_width_func, e_func):
+    new_row = []
+    for cdx, e in enumerate(row):
+        e = e_func(e, cdx)
+        w = calc_width_func(e)
+        new_row.append((e, w))
+        width_list[cdx] = max(width_list[cdx], w)
+    return new_row
+
+
 def print_markdown(header, res, pc, mp):
-    res.insert(0, header)
-    max_length_each_fields = _get_max_length_each_fields(res, _deal_html_elem, pc)
-    res.insert(1, map(lambda l: ('-' * l, l), max_length_each_fields))
-    print_row_func = _table_row_str(max_length_each_fields, len(header) * [Align.ALIGN_LEFT], Color.NO_COLOR)
-    for row in res:
+    width_list = len(header) * [0]
+    calc_width_func = _str_width(pc)
+    header = set_width_for_row(header, width_list, calc_width_func, lambda e, cdx: _deal_html_elem(e))
+    new_res = [set_width_for_row(row, width_list, calc_width_func, lambda e, cdx: _deal_html_elem(e)) for row in res]
+    print_row_func = _table_row_str(width_list, len(header) * [Align.ALIGN_LEFT], Color.NO_COLOR)
+    mp.output(''.join(print_row_func(header)))
+    mp.output(''.join(print_row_func(map(lambda l: ('-' * l, l), width_list))))
+    for row in new_res:
         mp.output(''.join(print_row_func(row)))
 
 
 def print_insert_sql(header, res, tab_name, server_type: DatabaseType, mp):
     def _case_for_sql(_row):
-        for cdx, e in enumerate(_row):
+        for e in _row:
             if e is None:
                 yield "NULL"
             elif isinstance(e, (int, float, HexObj)):
@@ -381,12 +381,11 @@ def print_xml(hd, res, mp, human=False):
 
 
 def print_csv(header, res, mp, split_char=','):
-    res.insert(0, header)
-    for row in res:
-        new_row = []
-        for data in row:
-            print_data = "" if data is None else str(data)
-            if split_char in print_data or '\n' in print_data or '\r' in print_data:
-                print_data = f'''"{print_data.replace('"', '""')}"'''
-            new_row.append(print_data)
-        mp.output(split_char.join(new_row))
+    def _deal_csv_element(element):
+        element = "" if element is None else str(element)
+        if split_char in element or '\n' in element or '\r' in element:
+            element = f'''"{element.replace('"', '""')}"'''
+        return element
+
+    for row in itertools.chain([header], res):
+        mp.output(split_char.join(map(_deal_csv_element, row)))
